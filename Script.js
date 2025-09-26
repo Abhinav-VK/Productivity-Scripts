@@ -1799,16 +1799,22 @@ if (isFeatureEnabled('openRCAI') && /paragon-.*\.amazon\.com\/ilac\/view-ilac-re
             e.preventDefault();
             e.stopPropagation();
             
-            // Get the shipment ID directly from the cell containing the Copy Shipment ID button
-            const shipmentCell = copyShipmentBtn.closest('td');
+            // Find shipment ID in the Shipment ID row
+            const rows = document.querySelectorAll('tr');
             let shipmentId = '';
             
-            if (shipmentCell) {
-                // Extract exactly 11 characters after 'FBA'
-                const match = shipmentCell.textContent.match(/FBA[A-Z0-9]{11}/);
-                if (match) {
-                    shipmentId = match[0];
+            for (const row of rows) {
+                const cells = row.querySelectorAll('td');
+                for (const cell of cells) {
+                    if (cell.textContent.includes('Shipment ID:')) {
+                        const idMatch = row.textContent.match(/FBA[A-Z0-9]{11}/);
+                        if (idMatch) {
+                            shipmentId = idMatch[0];
+                            break;
+                        }
+                    }
                 }
+                if (shipmentId) break;
             }
             
             if (shipmentId) {
@@ -1840,11 +1846,7 @@ if (isFeatureEnabled('openRCAI') && /paragon-.*\.amazon\.com\/ilac\/view-ilac-re
     setTimeout(addRCAIButton, 1000);
     setTimeout(addRCAIButton, 2000);
     setTimeout(addRCAIButton, 3000);
-    
-    // Debug logging
-    console.log('RCAI feature initialized');
 }
-
 
 
 })();
