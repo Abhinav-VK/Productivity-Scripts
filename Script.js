@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     2.3
+// @version     2.4
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker and Check Mapping with Alt+X toggle panel
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
 // @include     https://paragon-na.amazon.com/hz/case?caseId=*
@@ -34,8 +34,8 @@
         rcaiResults: { name: "RCAI Results Popup", default: true },
         serenityExtractor: { name: "Serenity ID Extractor", default: true },
         santosChecker: { name: "SANTOS Checker", default: true },
-        filterAllMID: { name: "Check Mapping", default: true }
-        openRCAI: { name: "Open RCAI", default: true }  // Add this line
+        filterAllMID: { name: "Check Mapping", default: true },
+        openRCAI: { name: "Open RCAI", default: true }  
     };
 
 
