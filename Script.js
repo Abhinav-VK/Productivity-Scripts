@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name        Combined Productivity Scripts
+// @name        Combined Productivity Scriptsssssssssssssssssssssssssss
 // @namespace   http://tampermonkey.net/
 // @version     2.0
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker and Check Mapping with Alt+X toggle panel
