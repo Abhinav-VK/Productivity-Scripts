@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     2.9
+// @version     3.5
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker and Check Mapping with Alt+X toggle panel
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
 // @include     https://paragon-na.amazon.com/hz/case?caseId=*
@@ -35,7 +35,7 @@
         serenityExtractor: { name: "Serenity ID Extractor", default: true },
         santosChecker: { name: "SANTOS Checker", default: true },
         filterAllMID: { name: "Check Mapping", default: true },
-        openRCAI: { name: "Open RCAI", default: true }  
+        openRCAI: { name: "Open RCAI", default: true }
     };
 
 
@@ -126,17 +126,17 @@
           min-width: 280px;
           max-width: 400px;
       }
-  
+
       .toggle-content {
           padding: 16px;
       }
-  
+
       .toggle-item {
           margin-bottom: 12px;
           display: flex;
           align-items: center;
       }
-  
+
       .toggle-checkbox {
           display: flex;
           align-items: center;
@@ -145,13 +145,13 @@
           font-size: 14px;
           user-select: none;
       }
-  
+
       .toggle-checkbox input[type="checkbox"] {
           margin-right: 10px;
           width: 18px;
           height: 18px;
       }
-  
+
       .feature-name {
           margin-left: 8px;
       }
@@ -417,82 +417,128 @@
   // 2) RCAI Expand Findings     //
   /////////////////////////////////
 
-  if (isFeatureEnabled('rcaiExpand') && /console\.harmony\.a2z\.com/.test(location.href)) {
-    const RCAI_TEXT = 'mfi root cause analysis and investigation';
-    const DETAILS_TEXT = 'details of the findings';
-    const SHOW_DETAILS_TEXT = 'show details';
-    function norm(txt) { return txt.trim().toLowerCase().replace(/\s+/g,' '); }
-    function hasRCAI() { return norm(document.body.innerText).includes(RCAI_TEXT); }
-    function hasDetailsFindings() {
-      return norm(document.body.innerText).includes(DETAILS_TEXT);
-    }
-    function hasShow() {
-      return Array.from(document.querySelectorAll('button,a')).some(el =>
-        el.offsetParent && norm(el.textContent).includes(SHOW_DETAILS_TEXT)
-      );
-    }
-    function findDetailsOfFindingsButtons() {
-      const buttons = [];
-      const allElements = Array.from(document.querySelectorAll('*'));
-      allElements.forEach(el => {
-        if (norm(el.textContent).includes(DETAILS_TEXT)) {
-          // Look for "Show Details" button near this "Details of the Findings" text
-          const parent = el.closest('div') || el.parentElement;
-          if (parent) {
-            const showDetailsBtn = parent.querySelector('button, a');
-            if (showDetailsBtn && norm(showDetailsBtn.textContent).includes(SHOW_DETAILS_TEXT)) {
-              buttons.push(showDetailsBtn);
-            }
-          }
+    // 2. RCAI Expand Findings - Updated Position and Color
+    if (isFeatureEnabled('rcaiExpand') && /console\.harmony\.a2z\.com/.test(location.href)) {
+
+        const RCAITEXT = 'mfi root cause analysis and investigation';
+        const DETAILSTEXT = 'details of the findings';
+        const SHOWDETAILSTEXT = 'show details';
+
+        function norm(txt) {
+            return txt.trim().toLowerCase().replace(/\s+/g, ' ');
         }
-      });
-      return buttons;
-    }
-    function addExpandBtn() {
-      if (document.getElementById('rcai-expand-btn')) return;
-      const btn = document.createElement('button');
-      btn.id = 'rcai-expand-btn';
-      btn.textContent = 'Expand Findings';
-      Object.assign(btn.style, {
-        position:'fixed', bottom:'20px', right:'20px',
-        zIndex:'9999', padding:'12px 16px',
-        background:'#000', color:'#fff', border:'none',
-        borderRadius:'6px', cursor:'pointer',
-        fontSize:'14px', fontWeight:'bold',
-        boxShadow:'0 2px 6px rgba(0,0,0,0.2)'
-      });
-      btn.onclick = () => {
-        btn.textContent = 'Expanding Findings...';
-        const detailsButtons = findDetailsOfFindingsButtons();
-        if (detailsButtons.length === 0) {
-          btn.textContent = 'No Details Found';
-          btn.style.color = 'orange';
-          setTimeout(() => {
+
+        function hasRCAI() {
+            return norm(document.body.innerText).includes(RCAITEXT);
+        }
+
+        function hasDetailsFindings() {
+            return norm(document.body.innerText).includes(DETAILSTEXT);
+        }
+
+        function hasShow() {
+            return Array.from(document.querySelectorAll('button,a')).some(el =>
+                                                                          el.offsetParent && norm(el.textContent).includes(SHOWDETAILSTEXT)
+                                                                         );
+        }
+
+        function findDetailsOfFindingsButtons() {
+            const buttons = [];
+            const allElements = Array.from(document.querySelectorAll('*'));
+            allElements.forEach(el => {
+                if (norm(el.textContent).includes(DETAILSTEXT)) {
+                    // Look for Show Details button near this "Details of the Findings" text
+                    const parent = el.closest('div') || el.parentElement;
+                    if (parent) {
+                        const showDetailsBtn = parent.querySelector('button, a');
+                        if (showDetailsBtn && norm(showDetailsBtn.textContent).includes(SHOWDETAILSTEXT)) {
+                            buttons.push(showDetailsBtn);
+                        }
+                    }
+                }
+            });
+            return buttons;
+        }
+
+        function addExpandBtn() {
+            if (document.getElementById('rcai-expand-btn')) return;
+
+            const btn = document.createElement('button');
+            btn.id = 'rcai-expand-btn';
             btn.textContent = 'Expand Findings';
-            btn.style.color = '#fff';
-          }, 2000);
-          return;
+
+            // Updated styling - positioned above RCAI Results and with Investigate button color
+            Object.assign(btn.style, {
+                position: 'fixed',
+                bottom: '80px',  // Positioned above RCAI Results (which is at 20px)
+                left: '20px',    // Same left position as RCAI Results
+                zIndex: '9999',
+                padding: '12px 16px',
+                background: '#0F7386',  // Same teal color as Investigate button
+                color: '#fff',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '14px',
+                fontWeight: 'bold',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
+            });
+
+            btn.onclick = function() {
+                btn.textContent = 'Expanding Findings...';
+
+                const detailsButtons = findDetailsOfFindingsButtons();
+                if (detailsButtons.length === 0) {
+                    btn.textContent = 'No Details Found';
+                    btn.style.color = 'orange';
+                    setTimeout(() => {
+                        btn.textContent = 'Expand Findings';
+                        btn.style.color = '#fff';
+                    }, 2000);
+                    return;
+                }
+
+                detailsButtons.forEach((el, i) => {
+                    setTimeout(() => el.click(), i * 300);
+                });
+
+                setTimeout(() => {
+                    btn.textContent = 'Completed';
+                    btn.style.color = 'limegreen';
+                }, detailsButtons.length * 300 + 500);
+
+                setTimeout(() => {
+                    btn.textContent = 'Expand Findings';
+                    btn.style.color = '#fff';
+                }, detailsButtons.length * 300 + 2500);
+            };
+
+            document.body.appendChild(btn);
         }
-        detailsButtons.forEach((el, i) => {
-          setTimeout(() => el.click(), i * 300);
+
+        const obs = new MutationObserver(() => {
+            if (hasRCAI() && hasDetailsFindings() && hasShow()) {
+                addExpandBtn();
+            }
         });
+
+        obs.observe(document.body, { childList: true, subtree: true });
+
         setTimeout(() => {
-          btn.textContent = 'Completed';
-          btn.style.color = 'limegreen';
-        }, detailsButtons.length * 300 + 500);
-        setTimeout(() => {
-          btn.textContent = 'Expand Findings';
-          btn.style.color = '#fff';
-        }, detailsButtons.length * 300 + 2500);
-      };
-      document.body.appendChild(btn);
+            if (hasRCAI() && hasDetailsFindings() && hasShow()) {
+                addExpandBtn();
+            }
+        }, 3000);
     }
-    const obs = new MutationObserver(() => {
-      if (hasRCAI() && (hasDetailsFindings() || hasShow())) addExpandBtn();
-    });
-    obs.observe(document.body, { childList: true, subtree: true });
-    setTimeout(() => { if (hasRCAI() && (hasDetailsFindings() || hasShow())) addExpandBtn(); }, 3000);
-  }
+
+
+
+
+
+
+
+
+
   /////////////////////////////////
   // 3) RCAI Results Popup       //
   /////////////////////////////////
@@ -522,7 +568,7 @@
       Object.assign(btn.style, {
         position:'fixed', bottom:'20px', left:'20px',
         zIndex:'9999', padding:'12px 16px',
-        background:'#000', color:'#fff', border:'none',
+        background:'#0F7386', color:'#fff', border:'none',
         borderRadius:'6px', cursor:'pointer',
         fontSize:'14px', fontWeight:'bold',
         boxShadow:'0 2px 6px rgba(0,0,0,0.2)'
@@ -1667,19 +1713,20 @@ if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fn
 }
 
 
+
 /////////////////////////////////
 // 7) Open RCAI                //
 /////////////////////////////////
 
 if (isFeatureEnabled('openRCAI') && /paragon-.*\.amazon\.com\/ilac\/view-ilac-report/.test(location.href)) {
-    
+
     function addRCAIButton() {
         // Find the Copy Shipment ID button
         const buttons = Array.from(document.querySelectorAll('button'));
-        const copyShipmentBtn = buttons.find(btn => 
+        const copyShipmentBtn = buttons.find(btn =>
             btn.textContent && btn.textContent.trim() === 'Copy Shipment ID'
         );
-        
+
         if (!copyShipmentBtn || document.getElementById('rcai-link-btn')) {
             return;
         }
@@ -1687,7 +1734,7 @@ if (isFeatureEnabled('openRCAI') && /paragon-.*\.amazon\.com\/ilac\/view-ilac-re
         const rcaiBtn = document.createElement('button');
         rcaiBtn.id = 'rcai-link-btn';
         rcaiBtn.textContent = 'RCAI';
-        
+
         // Copy styles from the existing button
         rcaiBtn.className = copyShipmentBtn.className;
         rcaiBtn.style.cssText = copyShipmentBtn.style.cssText;
@@ -1696,31 +1743,31 @@ if (isFeatureEnabled('openRCAI') && /paragon-.*\.amazon\.com\/ilac\/view-ilac-re
         rcaiBtn.addEventListener('click', function(e) {
             e.preventDefault();
             e.stopPropagation();
-            
-            // Find shipment ID in the Shipment ID row
-            const rows = document.querySelectorAll('tr');
+
+            // Get all cells in the table
+            const cells = document.querySelectorAll('td');
             let shipmentId = '';
-            
-            for (const row of rows) {
-                const cells = row.querySelectorAll('td');
-                for (const cell of cells) {
-                    if (cell.textContent.includes('Shipment ID:')) {
-                        const idMatch = row.textContent.match(/FBA[A-Z0-9]{11}/);
-                        if (idMatch) {
-                            shipmentId = idMatch[0];
-                            break;
-                        }
+
+            // Look for FBA pattern in cells
+            for (const cell of cells) {
+                // Look for FBA pattern with 9 characters after it
+                const matches = cell.textContent.match(/FBA[A-Z0-9]{9}/g) || [];
+                for (const match of matches) {
+                    if (match.length === 12) { // FBA + 9 characters
+                        shipmentId = match;
+                        break;
                     }
                 }
                 if (shipmentId) break;
             }
-            
+
             if (shipmentId) {
-                console.log('Opening RCAI for shipment:', shipmentId);
+                console.log('Found shipment ID:', shipmentId);
                 const rcaiUrl = `https://console.harmony.a2z.com/fba-mfi-rce/mfi-rca?shipmentId=${shipmentId}`;
                 window.open(rcaiUrl, '_blank');
             } else {
-                console.log('Could not find shipment ID');
+                console.log('Could not find valid shipment ID');
+                alert('Could not find valid shipment ID');
             }
         });
 
@@ -1735,9 +1782,9 @@ if (isFeatureEnabled('openRCAI') && /paragon-.*\.amazon\.com\/ilac\/view-ilac-re
         }
     });
 
-    rcaiObserver.observe(document.body, { 
-        childList: true, 
-        subtree: true 
+    rcaiObserver.observe(document.body, {
+        childList: true,
+        subtree: true
     });
 
     // Initial checks with increasing delays
