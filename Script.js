@@ -1776,7 +1776,7 @@ if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fn
 if (isFeatureEnabled('openRCAI') && /paragon-.*\.amazon\.com\/ilac\/view-ilac-report/.test(location.href)) {
     
     function addRCAIButton() {
-        // Find the Copy Shipment ID button more reliably
+        // Find the Copy Shipment ID button
         const buttons = Array.from(document.querySelectorAll('button'));
         const copyShipmentBtn = buttons.find(btn => 
             btn.textContent && btn.textContent.trim() === 'Copy Shipment ID'
@@ -1799,14 +1799,27 @@ if (isFeatureEnabled('openRCAI') && /paragon-.*\.amazon\.com\/ilac\/view-ilac-re
             e.preventDefault();
             e.stopPropagation();
             
-            // Find shipment ID from the page
-            const shipmentIdRow = document.querySelector('tr:has(td:contains("Shipment ID:"))');
-            if (shipmentIdRow) {
-                const shipmentId = shipmentIdRow.textContent.match(/FBA[A-Z0-9]+/)?.[0];
-                if (shipmentId) {
-                    const rcaiUrl = `https://console.harmony.a2z.com/fba-mfi-rce/mfi-rca?shipmentId=${shipmentId}`;
-                    window.open(rcaiUrl, '_blank');
+            // Get all cells in the table
+            const cells = document.querySelectorAll('td');
+            let shipmentId = '';
+            
+            // Look for the shipment ID in the cells
+            for (const cell of cells) {
+                if (cell.textContent && cell.textContent.includes('FBA')) {
+                    const match = cell.textContent.match(/FBA[A-Z0-9]+/);
+                    if (match) {
+                        shipmentId = match[0];
+                        break;
+                    }
                 }
+            }
+            
+            if (shipmentId) {
+                console.log('Opening RCAI for shipment:', shipmentId);
+                const rcaiUrl = `https://console.harmony.a2z.com/fba-mfi-rce/mfi-rca?shipmentId=${shipmentId}`;
+                window.open(rcaiUrl, '_blank');
+            } else {
+                console.log('Could not find shipment ID');
             }
         });
 
@@ -1816,7 +1829,6 @@ if (isFeatureEnabled('openRCAI') && /paragon-.*\.amazon\.com\/ilac\/view-ilac-re
 
     // Add observer to handle dynamic content loading
     const rcaiObserver = new MutationObserver((mutations, observer) => {
-        // Check if we're on the correct page
         if (!document.getElementById('rcai-link-btn')) {
             addRCAIButton();
         }
@@ -1835,6 +1847,7 @@ if (isFeatureEnabled('openRCAI') && /paragon-.*\.amazon\.com\/ilac\/view-ilac-re
     // Debug logging
     console.log('RCAI feature initialized');
 }
+
 
 
 
