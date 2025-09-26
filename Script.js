@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     2.6
+// @version     2.7
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker and Check Mapping with Alt+X toggle panel
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
 // @include     https://paragon-na.amazon.com/hz/case?caseId=*
@@ -1799,18 +1799,15 @@ if (isFeatureEnabled('openRCAI') && /paragon-.*\.amazon\.com\/ilac\/view-ilac-re
             e.preventDefault();
             e.stopPropagation();
             
-            // Get all cells in the table
-            const cells = document.querySelectorAll('td');
+            // Get the shipment ID directly from the cell containing the Copy Shipment ID button
+            const shipmentCell = copyShipmentBtn.closest('td');
             let shipmentId = '';
             
-            // Look for the shipment ID in the cells
-            for (const cell of cells) {
-                if (cell.textContent && cell.textContent.includes('FBA')) {
-                    const match = cell.textContent.match(/FBA[A-Z0-9]+/);
-                    if (match) {
-                        shipmentId = match[0];
-                        break;
-                    }
+            if (shipmentCell) {
+                // Extract exactly 11 characters after 'FBA'
+                const match = shipmentCell.textContent.match(/FBA[A-Z0-9]{11}/);
+                if (match) {
+                    shipmentId = match[0];
                 }
             }
             
@@ -1847,7 +1844,6 @@ if (isFeatureEnabled('openRCAI') && /paragon-.*\.amazon\.com\/ilac\/view-ilac-re
     // Debug logging
     console.log('RCAI feature initialized');
 }
-
 
 
 
