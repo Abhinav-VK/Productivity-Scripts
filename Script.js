@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     2.4
+// @version     2.5
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker and Check Mapping with Alt+X toggle panel
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
 // @include     https://paragon-na.amazon.com/hz/case?caseId=*
@@ -1776,14 +1776,21 @@ if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fn
 if (isFeatureEnabled('openRCAI') && /paragon-.*\.amazon\.com\/ilac\/view-ilac-report/.test(location.href)) {
     
     function addRCAIButton() {
-        const copyShipmentBtn = document.querySelector('button:contains("Copy Shipment ID")');
-        if (!copyShipmentBtn || document.getElementById('rcai-link-btn')) return;
+        // Find the Copy Shipment ID button more reliably
+        const buttons = Array.from(document.querySelectorAll('button'));
+        const copyShipmentBtn = buttons.find(btn => 
+            btn.textContent && btn.textContent.trim() === 'Copy Shipment ID'
+        );
+        
+        if (!copyShipmentBtn || document.getElementById('rcai-link-btn')) {
+            return;
+        }
 
         const rcaiBtn = document.createElement('button');
         rcaiBtn.id = 'rcai-link-btn';
         rcaiBtn.textContent = 'RCAI';
         
-        // Copy the style from the existing button
+        // Copy styles from the existing button
         rcaiBtn.className = copyShipmentBtn.className;
         rcaiBtn.style.cssText = copyShipmentBtn.style.cssText;
         rcaiBtn.style.marginLeft = '10px';
@@ -1792,32 +1799,41 @@ if (isFeatureEnabled('openRCAI') && /paragon-.*\.amazon\.com\/ilac\/view-ilac-re
             e.preventDefault();
             e.stopPropagation();
             
-            // Get the shipment ID from the page
-            const shipmentIdElement = document.querySelector('td:contains("FBA")');
-            if (!shipmentIdElement) return;
-            
-            const shipmentId = shipmentIdElement.textContent.trim();
-            if (!shipmentId) return;
-
-            // Open RCAI page in new tab
-            const rcaiUrl = `https://console.harmony.a2z.com/fba-mfi-rce/mfi-rca?shipmentId=${shipmentId}`;
-            window.open(rcaiUrl, '_blank');
+            // Find shipment ID from the page
+            const shipmentIdRow = document.querySelector('tr:has(td:contains("Shipment ID:"))');
+            if (shipmentIdRow) {
+                const shipmentId = shipmentIdRow.textContent.match(/FBA[A-Z0-9]+/)?.[0];
+                if (shipmentId) {
+                    const rcaiUrl = `https://console.harmony.a2z.com/fba-mfi-rce/mfi-rca?shipmentId=${shipmentId}`;
+                    window.open(rcaiUrl, '_blank');
+                }
+            }
         });
 
         copyShipmentBtn.parentNode.insertBefore(rcaiBtn, copyShipmentBtn.nextSibling);
+        console.log('RCAI button added successfully');
     }
 
     // Add observer to handle dynamic content loading
-    const rcaiObserver = new MutationObserver(() => {
+    const rcaiObserver = new MutationObserver((mutations, observer) => {
+        // Check if we're on the correct page
         if (!document.getElementById('rcai-link-btn')) {
             addRCAIButton();
         }
     });
-    rcaiObserver.observe(document.body, { childList: true, subtree: true });
 
-    // Initial checks
+    rcaiObserver.observe(document.body, { 
+        childList: true, 
+        subtree: true 
+    });
+
+    // Initial checks with increasing delays
     setTimeout(addRCAIButton, 1000);
+    setTimeout(addRCAIButton, 2000);
     setTimeout(addRCAIButton, 3000);
+    
+    // Debug logging
+    console.log('RCAI feature initialized');
 }
 
 
