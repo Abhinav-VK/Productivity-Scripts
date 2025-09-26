@@ -15,8 +15,8 @@
 // @grant       GM_addStyle
 // @grant       GM_setValue
 // @grant       GM_getValue
-// @updateURL   https://raw.githubusercontent.com/Abhinav-VK/Productivity-Scripts/refs/heads/main/Combined%20Productivity%20Scripts.js
-// @downloadURL https://raw.githubusercontent.com/Abhinav-VK/Productivity-Scripts/refs/heads/main/Combined%20Productivity%20Scripts.js
+// @updateURL   https://raw.githubusercontent.com/Abhinav-VK/Productivity-Scripts/refs/heads/main/Script.js
+// @downloadURL https://raw.githubusercontent.com/Abhinav-VK/Productivity-Scripts/refs/heads/main/Script.js
 
 // ==/UserScript==
 
