@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     2.8
+// @version     2.9
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker and Check Mapping with Alt+X toggle panel
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
 // @include     https://paragon-na.amazon.com/hz/case?caseId=*
@@ -113,153 +113,51 @@
     });
   }
 
-  // Global CSS for toggle panel and fixes
+  // Update this CSS block in the script
   GM_addStyle(`
-    #feature-toggle-panel {
-      position: fixed;
-      background: white;
-      border: 2px solid #333;
-      border-radius: 8px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-      z-index: 10000;
-      font-family: Arial, sans-serif;
-      min-width: 280px;
-      max-width: 400px;
-    }
-
-    .toggle-header {
-      background: #f0f0f0;
-      padding: 12px 16px;
-      border-bottom: 1px solid #ddd;
-      font-weight: bold;
-      font-size: 16px;
-      border-radius: 6px 6px 0 0;
-    }
-
-    .toggle-content {
-      padding: 16px;
-    }
-
-    .toggle-item {
-      margin-bottom: 12px;
-    }
-
-    .toggle-checkbox {
-      display: flex;
-      align-items: center;
-      cursor: pointer;
-      font-size: 14px;
-      user-select: none;
-    }
-
-    .toggle-checkbox input[type="checkbox"] {
-      margin-right: 10px;
-      width: 18px;
-      height: 18px;
-      cursor: pointer;
-    }
-
-    .feature-name {
-      flex: 1;
-    }
-
-    .toggle-actions {
-      margin-top: 20px;
-      text-align: center;
-      border-top: 1px solid #eee;
-      padding-top: 15px;
-    }
-
-    #close-toggle-panel {
-      background: #007BFF;
-      color: white;
-      border: none;
-      padding: 8px 20px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 14px;
-    }
-
-    #close-toggle-panel:hover {
-      background: #0056b3;
-    }
-
-    /* Fixed Radio inputs styling - only apply to script forms */
-    #HygieneCheckForm input[type="radio"],
-    #MissingUnitsForm input[type="radio"] {
-      position: relative !important;
-      box-sizing: border-box !important;
-      width: 16px !important;
-      height: 16px !important;
-      appearance: none !important;
-      border: 2px solid #ccc !important;
-      border-radius: 4px !important;
-      cursor: pointer !important;
-      vertical-align: middle !important;
-      margin-right: 8px !important;
-      background-clip: content-box !important;
-    }
-
-    /* When checked, fill the square - only for script forms */
-    #HygieneCheckForm input[type="radio"]:checked,
-    #MissingUnitsForm input[type="radio"]:checked {
-      background-color: #007BFF !important;
-      border-color: #007BFF !important;
-    }
-
-    /* RCAI Popup Styles */
-    #rcai-popup {
-      position: fixed;
-      top: 10%;
-      left: 10%;
-      width: 80%;
-      height: 250px;
-      resize: vertical;
-      overflow: hidden;
-      background: #f9f9f9;
-      border: 2px solid #333;
-      z-index: 9999;
-      font-family: Consolas, monospace;
-      box-shadow: 0 0 10px rgba(0,0,0,0.3);
-      display: flex;
-      flex-direction: column;
-    }
-    .rcai-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      background: #ddd;
-      padding: 5px 10px;
-      cursor: move;
-      user-select: none;
-    }
-    .rcai-controls { display: flex; gap: 8px; }
-    .rcai-controls button {
-      padding: 4px 10px;
-      background: #0078D4;
-      color: #fff;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-    .rcai-controls button:hover { background: #005A9E; }
-    #rcai-scroll { flex: 1; overflow-y: auto; }
-    #rcai-table { width: 100%; border-collapse: collapse; }
-    #rcai-body tr[data-header="true"] { position: sticky; top: 0; background: #ddd; z-index: 1; }
-    #rcai-table td { border: 1px solid #ccc; padding: 0; text-align: center; }
-    #rcai-table input {
-      width: 100%;
-      height: 32px;
-      box-sizing: border-box;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      padding: 4px;
-      font-size: 14px;
-    }
-    .remove-btn { background: #d9534f; color: #fff; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; }
-    .remove-btn:hover { background: #c9302c; }
-    #minimize-btn { background: #444; color: #fff; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer; }
+      #feature-toggle-panel {
+          position: fixed;
+          background: white;
+          border: 2px solid #333;
+          border-radius: 8px;
+          box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+          z-index: 10000;
+          font-family: Arial, sans-serif;
+          min-width: 280px;
+          max-width: 400px;
+      }
+  
+      .toggle-content {
+          padding: 16px;
+      }
+  
+      .toggle-item {
+          margin-bottom: 12px;
+          display: flex;
+          align-items: center;
+      }
+  
+      .toggle-checkbox {
+          display: flex;
+          align-items: center;
+          width: 100%;
+          cursor: pointer;
+          font-size: 14px;
+          user-select: none;
+      }
+  
+      .toggle-checkbox input[type="checkbox"] {
+          margin-right: 10px;
+          width: 18px;
+          height: 18px;
+      }
+  
+      .feature-name {
+          margin-left: 8px;
+      }
   `);
+
+
 
   // Global keyboard listener for Alt+X
   document.addEventListener('keydown', (e) => {
