@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     3.5
+// @version     3.7
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker and Check Mapping with Alt+X toggle panel
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
 // @include     https://paragon-na.amazon.com/hz/case?caseId=*
@@ -38,6 +38,50 @@
         openRCAI: { name: "Open RCAI", default: true }
     };
 
+  // Standard button style for all floating buttons
+const STANDARD_BUTTON_STYLE = `
+  position: fixed;
+  padding: 12px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #000000;
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s ease;
+  z-index: 9999;
+  min-width: 140px;
+  text-align: center;
+  user-select: none;
+`;
+  // Add hover and active states for buttons
+  GM_addStyle(`
+    .standard-floating-btn {
+      ${STANDARD_BUTTON_STYLE}
+    }
+
+    .standard-floating-btn:hover {
+  background: #333333 !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+}
+
+.standard-floating-btn:active {
+  background: #000000 !important;
+  transform: translateY(0) !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2) !important;
+}
+
+.standard-floating-btn:disabled {
+  background: #666666 !important;
+  cursor: not-allowed !important;
+  transform: none !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+}
+  `);
 
   function isFeatureEnabled(feature) {
     return GM_getValue(feature, FEATURES[feature].default);
@@ -59,7 +103,8 @@
     panel.id = 'feature-toggle-panel';
     panel.innerHTML = `
       <div class="toggle-header">
-        <span>🔧 Script Features</span>
+        <span class="toggle-title">Script Features</span>
+        <button id="close-toggle-panel" class="close-btn">&times;</button>
       </div>
       <div class="toggle-content">
         ${Object.entries(FEATURES).map(([key, feature]) => `
@@ -71,9 +116,6 @@
             </label>
           </div>
         `).join('')}
-        <div class="toggle-actions">
-          <button id="close-toggle-panel">Close</button>
-        </div>
       </div>
     `;
 
@@ -113,51 +155,103 @@
     });
   }
 
-  // Update this CSS block in the script
+  // Updated CSS for toggle panel
   GM_addStyle(`
       #feature-toggle-panel {
           position: fixed;
           background: white;
-          border: 2px solid #333;
-          border-radius: 8px;
-          box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+          border-radius: 12px;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.12);
           z-index: 10000;
-          font-family: Arial, sans-serif;
-          min-width: 280px;
-          max-width: 400px;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          min-width: 320px;
+          max-width: 420px;
+          overflow: hidden;
+          border: 1px solid #e1e5e9;
+      }
+
+      .toggle-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 12px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+      .toggle-title {
+          color: white;
+          font-size: 18px;
+          font-weight: 700;
+          margin: 0;
+      }
+
+      .close-btn {
+    background: rgba(255,255,255,0.2);
+    border: none;
+    color: white;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+    transition: background 0.2s ease;
+    text-align: center;
+}
+      .close-btn:hover {
+          background: rgba(255,255,255,0.3);
       }
 
       .toggle-content {
-          padding: 16px;
-      }
+    padding: 16px;
+    background: #fafbfc;
+}
 
       .toggle-item {
-          margin-bottom: 12px;
-          display: flex;
-          align-items: center;
-      }
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+}
+
+.toggle-item:last-child {
+    margin-bottom: 0;
+}
 
       .toggle-checkbox {
           display: flex;
           align-items: center;
           width: 100%;
           cursor: pointer;
-          font-size: 14px;
+          font-size: 15px;
           user-select: none;
+          padding: 12px 16px;
+          border-radius: 8px;
+          background: white;
+          border: 1px solid #e1e5e9;
+          transition: all 0.2s ease;
+      }
+
+      .toggle-checkbox:hover {
+          border-color: #667eea;
+          box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
       }
 
       .toggle-checkbox input[type="checkbox"] {
-          margin-right: 10px;
+          margin-right: 12px;
           width: 18px;
           height: 18px;
+          accent-color: #667eea;
       }
 
       .feature-name {
-          margin-left: 8px;
+          font-weight: 500;
+          color: #2d3748;
       }
   `);
-
-
 
   // Global keyboard listener for Alt+X
   document.addEventListener('keydown', (e) => {
@@ -468,21 +562,9 @@
             btn.textContent = 'Expand Findings';
 
             // Updated styling - positioned above RCAI Results and with Investigate button color
-            Object.assign(btn.style, {
-                position: 'fixed',
-                bottom: '80px',  // Positioned above RCAI Results (which is at 20px)
-                left: '20px',    // Same left position as RCAI Results
-                zIndex: '9999',
-                padding: '12px 16px',
-                background: '#0F7386',  // Same teal color as Investigate button
-                color: '#fff',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontSize: '14px',
-                fontWeight: 'bold',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
-            });
+            btn.className = 'standard-floating-btn';
+            btn.style.bottom = '80px';
+            btn.style.left = '20px';
 
             btn.onclick = function() {
                 btn.textContent = 'Expanding Findings...';
@@ -532,343 +614,655 @@
     }
 
 
+/////////////////////////////////
+// 3) RCAI Results Popup - FIXED VERSION //
+/////////////////////////////////
 
+if (isFeatureEnabled('rcaiResults') && /console\.harmony\.a2z\.com/.test(location.href)) {
 
+  let popupVisible = false, removedStack = [], restoring = false;
 
+  const RCAI_TEXT = 'mfi root cause analysis and investigation';
+  const SHOW_DETAILS_TEXT = 'show details';
+  function norm(txt) { return txt.trim().toLowerCase().replace(/\s+/g,' '); }
+  function hasRCAI() { return norm(document.body.innerText).includes(RCAI_TEXT); }
+  function hasShow() {
+    return Array.from(document.querySelectorAll('button,a')).some(el =>
+      el.offsetParent && norm(el.textContent).includes(SHOW_DETAILS_TEXT)
+    );
+  }
 
+  function addRcaiResultsBtn() {
+    if (!(hasRCAI() && hasShow())) return;
+    if (document.getElementById('rcai-results-btn')) return;
+    const btn = document.createElement('button');
+    btn.id = 'rcai-results-btn';
+    btn.className = 'standard-floating-btn';
+    btn.textContent = 'RCAI Results';
+    btn.style.bottom = '20px';
+    btn.style.left = '20px';
+    btn.onclick = createPopup;
+    document.body.appendChild(btn);
+  }
 
+  const buttonObs = new MutationObserver(() => {
+    if (hasRCAI() && hasShow()) addRcaiResultsBtn();
+  });
+  buttonObs.observe(document.body, { childList: true, subtree: true });
+  setTimeout(() => { if (hasRCAI() && hasShow()) addRcaiResultsBtn(); }, 3000);
 
-
-  /////////////////////////////////
-  // 3) RCAI Results Popup       //
-  /////////////////////////////////
-
-  if (isFeatureEnabled('rcaiResults') && /console\.harmony\.a2z\.com/.test(location.href)) {
-
-    let popupVisible = false, removedStack = [], restoring = false;
-
-    // Check if RCAI content is present (same logic as Expand Findings)
-    const RCAI_TEXT = 'mfi root cause analysis and investigation';
-    const SHOW_DETAILS_TEXT = 'show details';
-    function norm(txt) { return txt.trim().toLowerCase().replace(/\s+/g,' '); }
-    function hasRCAI() { return norm(document.body.innerText).includes(RCAI_TEXT); }
-    function hasShow() {
-      return Array.from(document.querySelectorAll('button,a')).some(el =>
-        el.offsetParent && norm(el.textContent).includes(SHOW_DETAILS_TEXT)
-      );
+  GM_addStyle(`
+    #rcai-popup {
+      position: fixed !important;
+      top: 10px !important;
+      left: 50% !important;
+      transform: translateX(-50%) !important;
+      width: 90vw !important;
+      max-width: 1400px !important;
+      min-width: 400px !important;
+      height: 350px !important;
+      max-height: 90vh !important;
+      min-height: 200px !important;
+      background: white !important;
+      border: 2px solid #8b5cf6 !important;
+      border-radius: 8px !important;
+      box-shadow: 0 8px 32px rgba(139, 92, 246, 0.2) !important;
+      z-index: 10001 !important;
+      overflow: hidden !important;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+      resize: both !important;
+      display: flex !important;
+      flex-direction: column !important;
     }
 
-    // Add RCAI Results button only when RCAI content is present
-    function addRcaiResultsBtn() {
-      if (!(hasRCAI() && hasShow())) return; // CHANGED: require both RCAI and Show Details
-      if (document.getElementById('rcai-results-btn')) return;
-      const btn = document.createElement('button');
-      btn.id = 'rcai-results-btn';
-      btn.textContent = 'RCAI Results';
-      Object.assign(btn.style, {
-        position:'fixed', bottom:'20px', left:'20px',
-        zIndex:'9999', padding:'12px 16px',
-        background:'#0F7386', color:'#fff', border:'none',
-        borderRadius:'6px', cursor:'pointer',
-        fontSize:'14px', fontWeight:'bold',
-        boxShadow:'0 2px 6px rgba(0,0,0,0.2)'
-      });
-      btn.onclick = createPopup;
-      document.body.appendChild(btn);
+    #rcai-popup.minimized {
+      height: 45px !important;
+      min-height: 45px !important;
+      max-height: 45px !important;
+      resize: none !important;
+      overflow: hidden !important;
     }
 
-    // Add button with proper RCAI detection
-    const buttonObs = new MutationObserver(() => {
-      if (hasRCAI() && hasShow()) addRcaiResultsBtn(); // CHANGED: require both RCAI and Show Details
-    });
-    buttonObs.observe(document.body, { childList: true, subtree: true });
-    setTimeout(() => { if (hasRCAI() && hasShow()) addRcaiResultsBtn(); }, 3000); // CHANGED: require both
+    #rcai-popup::after {
+      content: '' !important;
+      position: absolute !important;
+      bottom: 0 !important;
+      right: 0 !important;
+      width: 20px !important;
+      height: 20px !important;
+      background: linear-gradient(-45deg, transparent 0%, transparent 30%, #8b5cf6 30%, #8b5cf6 35%, transparent 35%, transparent 65%, #8b5cf6 65%, #8b5cf6 70%, transparent 70%) !important;
+      cursor: se-resize !important;
+      z-index: 10002 !important;
+    }
 
-    function storageKey() { return 'rcai:' + location.href; }
-    function savePopupState() {
-      const rows = Array.from(document.querySelectorAll('#rcai-body tr:not([data-header])'));
-      const data = rows.map(r =>
-        Array.from(r.querySelectorAll('td')).slice(1,11).map(td => td.querySelector('input')?.value||'')
-      );
-      localStorage.setItem(storageKey(), JSON.stringify(data));
+    #rcai-popup.minimized::after {
+      display: none !important;
     }
-    function restorePopupState() {
-      const s = localStorage.getItem(storageKey());
-      if (!s) return false;
-      try {
-        const arr = JSON.parse(s);
-        if (!Array.isArray(arr) || !arr.length) return false;
-        arr.forEach(r => addRow(r));
-        updateRowNumbers();
-        return true;
-      } catch { return false; }
+
+    .rcai-header {
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6) !important;
+      color: white !important;
+      padding: 10px 12px !important;
+      display: flex !important;
+      justify-content: space-between !important;
+      align-items: center !important;
+      font-weight: bold !important;
+      font-size: 15px !important;
+      user-select: none !important;
+      height: 45px !important;
+      box-sizing: border-box !important;
+      flex-shrink: 0 !important;
     }
-    function updateRowNumbers() {
-      let c = 0;
-      document.querySelectorAll('#rcai-body tr:not([data-header])').forEach(r => {
-        r.querySelector('td:first-child input').value = ++c;
-      });
+
+    .rcai-header-left {
+      display: flex !important;
+      align-items: center !important;
+      gap: 12px !important;
     }
-    function handleTab(e) {
-      if (e.key === 'Tab') {
-        e.preventDefault();
-        const inputs = Array.from(document.querySelectorAll('#rcai-body tr:not([data-header]) input'));
-        const idx = inputs.indexOf(e.target);
-        const next = inputs[e.shiftKey ? idx-1 : idx+1];
-        if (next) next.focus();
-      }
+
+    .row-counter-header {
+      background: rgba(255,255,255,0.2) !important;
+      padding: 4px 8px !important;
+      border-radius: 4px !important;
+      font-size: 11px !important;
+      color: white !important;
+      border: 1px solid rgba(255,255,255,0.3) !important;
     }
-    function removeRow(tr) {
-      const all = Array.from(document.querySelectorAll('#rcai-body tr:not([data-header])'));
-      removedStack.push({
-        data: Array.from(tr.querySelectorAll('td')).slice(1,11).map(td => td.querySelector('input')?.value||''),
-        position: all.indexOf(tr)
-      });
-      document.getElementById('undo-btn').disabled = false;
-      tr.remove();
+
+    .rcai-controls {
+      display: flex !important;
+      gap: 6px !important;
+    }
+
+    .rcai-controls button {
+      padding: 5px 9px !important;
+      font-size: 12px !important;
+      background: rgba(255,255,255,0.2) !important;
+      color: white !important;
+      border: 1px solid rgba(255,255,255,0.3) !important;
+      border-radius: 4px !important;
+      cursor: pointer !important;
+      font-weight: 500 !important;
+    }
+
+    .rcai-controls button:hover {
+      background: rgba(255,255,255,0.3) !important;
+    }
+
+    .rcai-controls button:disabled {
+      background: rgba(255,255,255,0.1) !important;
+      cursor: not-allowed !important;
+      opacity: 0.6 !important;
+    }
+
+    #rcai-scroll {
+      flex: 1 !important;
+      overflow: auto !important;
+      padding: 8px !important;
+      min-height: 0 !important;
+      background: white !important;
+      position: relative !important;
+    }
+
+    #rcai-popup.minimized #rcai-scroll {
+      display: none !important;
+    }
+
+    #rcai-table {
+      width: 100% !important;
+      border-collapse: collapse !important;
+      font-size: 12px !important;
+      table-layout: fixed !important;
+    }
+
+    #rcai-table thead {
+      position: sticky !important;
+      top: 0 !important;
+      z-index: 10 !important;
+      background: white !important;
+    }
+
+    #rcai-table td, #rcai-table th {
+      padding: 3px 5px !important;
+      border: 1px solid #e5e7eb !important;
+      background: white !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+    }
+
+    /* Column widths as requested */
+    #rcai-table td:nth-child(1), #rcai-table th:nth-child(1) { /* # */
+      width: 30px !important;
+      min-width: 30px !important;
+      max-width: 30px !important;
+    }
+
+    #rcai-table td:nth-child(2), #rcai-table th:nth-child(2) { /* FNSKU */
+      width: 90px !important;
+      min-width: 90px !important;
+      max-width: 90px !important;
+    }
+
+    #rcai-table td:nth-child(3), #rcai-table th:nth-child(3) { /* DECISION */
+      width: 70px !important;
+      min-width: 70px !important;
+      max-width: 70px !important;
+    }
+
+    #rcai-table td:nth-child(4), #rcai-table th:nth-child(4) { /* RC SUMMARY */
+      width: 150px !important;
+      min-width: 150px !important;
+    }
+
+    #rcai-table td:nth-child(5), #rcai-table th:nth-child(5) { /* DISC */
+      width: 45px !important;
+      min-width: 45px !important;
+      max-width: 45px !important;
+    }
+
+    #rcai-table td:nth-child(6), #rcai-table th:nth-child(6) { /* FAULT */
+      width: 60px !important;
+      min-width: 60px !important;
+      max-width: 60px !important;
+    }
+
+    #rcai-table td:nth-child(7), #rcai-table th:nth-child(7) { /* FOUND */
+      width: 45px !important;
+      min-width: 45px !important;
+      max-width: 45px !important;
+    }
+
+    #rcai-table td:nth-child(8), #rcai-table th:nth-child(8) { /* DENY */
+      width: 45px !important;
+      min-width: 45px !important;
+      max-width: 45px !important;
+    }
+
+    #rcai-table td:nth-child(9), #rcai-table th:nth-child(9) { /* RMS */
+      width: 45px !important;
+      min-width: 45px !important;
+      max-width: 45px !important;
+    }
+
+    #rcai-table td:nth-child(10), #rcai-table th:nth-child(10) { /* BLURB */
+      width: 200px !important;
+      min-width: 200px !important;
+    }
+
+    #rcai-table td:nth-child(11), #rcai-table th:nth-child(11) { /* NOTES */
+      width: auto !important;
+      min-width: 300px !important;
+    }
+
+    #rcai-table td:last-child, #rcai-table th:last-child { /* Remove button */
+      width: 25px !important;
+      min-width: 25px !important;
+      max-width: 25px !important;
+      text-align: center !important;
+    }
+
+    #rcai-table input {
+      width: 100% !important;
+      padding: 3px 5px !important;
+      border: none !important;
+      font-size: 11px !important;
+      outline: none !important;
+      background: transparent !important;
+      box-sizing: border-box !important;
+    }
+
+    #rcai-table input:focus {
+      background: #f3f4f6 !important;
+      border: 1px solid #8b5cf6 !important;
+      border-radius: 2px !important;
+    }
+
+    #rcai-table thead tr {
+      background: linear-gradient(135deg, #f8fafc, #f1f5f9) !important;
+    }
+
+    #rcai-table thead input {
+      font-weight: bold !important;
+      color: #475569 !important;
+      background: transparent !important;
+    }
+
+    .remove-btn {
+      padding: 1px 3px !important;
+      font-size: 10px !important;
+      background: #ef4444 !important;
+      color: white !important;
+      border: none !important;
+      border-radius: 2px !important;
+      cursor: pointer !important;
+      width: 16px !important;
+      height: 16px !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      line-height: 1 !important;
+    }
+
+    .remove-btn:hover {
+      background: #dc2626 !important;
+    }
+  `);
+
+  function storageKey() { return 'rcai:' + location.href; }
+  function savePopupState() {
+    const rows = Array.from(document.querySelectorAll('#rcai-body tr'));
+    const data = rows.map(r =>
+      Array.from(r.querySelectorAll('td')).slice(1,11).map(td => td.querySelector('input')?.value||'')
+    );
+    localStorage.setItem(storageKey(), JSON.stringify(data));
+  }
+  function restorePopupState() {
+    const s = localStorage.getItem(storageKey());
+    if (!s) return false;
+    try {
+      const arr = JSON.parse(s);
+      if (!Array.isArray(arr) || !arr.length) return false;
+      arr.forEach(r => addRow(r));
       updateRowNumbers();
-      adjustPopupHeight();
+      updateRowCounter();
+      return true;
+    } catch { return false; }
+  }
+  function updateRowNumbers() {
+    let c = 0;
+    document.querySelectorAll('#rcai-body tr').forEach(r => {
+      r.querySelector('td:first-child input').value = ++c;
+    });
+    updateRowCounter();
+  }
+
+  function updateRowCounter() {
+    const counter = document.querySelector('.row-counter-header');
+    if (counter) {
+      const rowCount = document.querySelectorAll('#rcai-body tr').length;
+      counter.textContent = `${rowCount} rows`;
     }
-    function undoRemove() {
-      if (!removedStack.length) return;
-      const { data, position } = removedStack.pop();
-      addRow(data, position);
-      if (!removedStack.length) document.getElementById('undo-btn').disabled = true;
+  }
+
+  function handleTab(e) {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const inputs = Array.from(document.querySelectorAll('#rcai-body tr input'));
+      const idx = inputs.indexOf(e.target);
+      const next = inputs[e.shiftKey ? idx-1 : idx+1];
+      if (next) next.focus();
     }
-    function addHeaderRow() {
-      const hdr = ["#","FNSKU","DECISION","RC SUMMARY","DISC","FAULT","FOUND","DENY","RMS","BLURB","NOTES"];
-      const tr = document.createElement('tr'); tr.dataset.header = 'true';
-      hdr.forEach(h => {
-        const td = document.createElement('td');
-        const inp = document.createElement('input');
-        inp.value = h; inp.readOnly = true; td.appendChild(inp); tr.appendChild(td);
+    if (e.ctrlKey && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      e.preventDefault();
+      const inputs = Array.from(document.querySelectorAll('#rcai-body tr input'));
+      const idx = inputs.indexOf(e.target);
+      const cols = 11;
+      let nextIdx = idx;
+      switch(e.key) {
+        case 'ArrowUp': nextIdx = idx - cols; break;
+        case 'ArrowDown': nextIdx = idx + cols; break;
+        case 'ArrowLeft': nextIdx = idx - 1; break;
+        case 'ArrowRight': nextIdx = idx + 1; break;
+      }
+      if (nextIdx >= 0 && nextIdx < inputs.length) {
+        inputs[nextIdx].focus();
+      }
+    }
+  }
+  function removeRow(tr) {
+    const all = Array.from(document.querySelectorAll('#rcai-body tr'));
+    removedStack.push({
+      data: Array.from(tr.querySelectorAll('td')).slice(1,11).map(td => td.querySelector('input')?.value||''),
+      position: all.indexOf(tr)
+    });
+    document.getElementById('undo-btn').disabled = false;
+    tr.remove();
+    updateRowNumbers();
+  }
+  function undoRemove() {
+    if (!removedStack.length) return;
+    const { data, position } = removedStack.pop();
+    addRow(data, position);
+    if (!removedStack.length) document.getElementById('undo-btn').disabled = true;
+  }
+  function addHeaderRow() {
+    const hdr = ["#","FNSKU","DECISION","RC SUMMARY","DISC","FAULT","FOUND","DENY","RMS","BLURB","NOTES"];
+    const thead = document.createElement('thead');
+    const tr = document.createElement('tr');
+    hdr.forEach(h => {
+      const th = document.createElement('th');
+      const inp = document.createElement('input');
+      inp.value = h;
+      inp.readOnly = true;
+      inp.style.fontWeight = 'bold';
+      inp.style.background = 'transparent';
+      th.appendChild(inp);
+      tr.appendChild(th);
+    });
+    // Add empty header for remove button column
+    const th = document.createElement('th');
+    th.innerHTML = '';
+    tr.appendChild(th);
+    thead.appendChild(tr);
+    document.getElementById('rcai-table').appendChild(thead);
+  }
+  function createRowElement(data=[]) {
+    const tr = document.createElement('tr');
+    const numTd = document.createElement('td');
+    const numIn = document.createElement('input');
+    numIn.readOnly = true;
+    numIn.style.background = '#f8fafc';
+    numTd.appendChild(numIn);
+    tr.appendChild(numTd);
+    for (let i=0; i<9; i++) {
+      const td = document.createElement('td');
+      const inp = document.createElement('input');
+      inp.value = data[i] || '';
+      inp.onkeydown = handleTab;
+      inp.oninput = () => { if (!restoring) savePopupState(); };
+      td.appendChild(inp);
+      tr.appendChild(td);
+    }
+    const notesTd = document.createElement('td');
+    const notesIn = document.createElement('input');
+    notesIn.maxLength = 50;
+    notesIn.value = data[9] || '';
+    notesIn.onkeydown = handleTab;
+    notesIn.oninput = () => { if (!restoring) savePopupState(); };
+    notesTd.appendChild(notesIn);
+    tr.appendChild(notesTd);
+    const rmTd = document.createElement('td');
+    const rmBtn = document.createElement('button');
+    rmBtn.textContent = '-';
+    rmBtn.className = 'remove-btn';
+    rmBtn.onclick = () => { removeRow(tr); savePopupState(); };
+    rmTd.appendChild(rmBtn);
+    tr.appendChild(rmTd);
+    return tr;
+  }
+  function addRow(data=[], position=null) {
+    const body = document.getElementById('rcai-body');
+    if (!body) {
+      console.error('RCAI Results: Table body not found');
+      return;
+    }
+
+    const row = createRowElement(data);
+    if (typeof position === 'number') {
+      const ref = body.children[position] || null;
+      body.insertBefore(row, ref);
+    } else {
+      body.appendChild(row);
+    }
+    updateRowNumbers();
+  }
+
+  function toggleMinimize() {
+    const popup = document.getElementById('rcai-popup');
+    const btn = document.getElementById('minimize-btn');
+    const scrollArea = document.getElementById('rcai-scroll');
+
+    if (popup.classList.contains('minimized')) {
+      popup.classList.remove('minimized');
+      popup.style.height = '350px';
+      popup.style.minHeight = '200px';
+      popup.style.maxHeight = '90vh';
+      popup.style.resize = 'both';
+      btn.textContent = '_';
+      if (scrollArea) scrollArea.style.display = 'block';
+    } else {
+      popup.classList.add('minimized');
+      popup.style.height = '45px';
+      popup.style.minHeight = '45px';
+      popup.style.maxHeight = '45px';
+      popup.style.resize = 'none';
+      btn.textContent = '□';
+      if (scrollArea) scrollArea.style.display = 'none';
+    }
+  }
+
+  function copyData() {
+    const widths = [4,12,12,18,6,10,8,8,8,34,20];
+    let out = 'RCAI RESULTS:\n';
+    const hdr = ['#','FNSKU','DECISION','RC SUMMARY','DISC','FAULT','FOUND','DENY','RMS','BLURB','NOTES'];
+    out += '|' + hdr.map((h,i) => h.padEnd(widths[i])).join('|') + '\n';
+    let tF=0, tD=0, tR=0;
+    document.querySelectorAll('#rcai-body tr').forEach(r => {
+      const cells = Array.from(r.querySelectorAll('td')).slice(0,11);
+      const vals = cells.map((cell,i) => {
+        let v = cell.querySelector('input')?.value || '-';
+        if (i === 6) tF += parseFloat(v) || 0;
+        if (i === 7) tD += parseFloat(v) || 0;
+        if (i === 8) tR += parseFloat(v) || 0;
+        return v.slice(0,widths[i]-1).padEnd(widths[i]);
       });
-      document.getElementById('rcai-body').appendChild(tr);
-    }
-    function createRowElement(data=[]) {
-      const tr = document.createElement('tr');
-      // Number
-      const numTd = document.createElement('td');
-      const numIn = document.createElement('input');
-      numIn.readOnly = true; numTd.appendChild(numIn); tr.appendChild(numTd);
-      // Cells 1–9
-      for (let i=0; i<9; i++) {
-        const td = document.createElement('td');
-        const inp = document.createElement('input');
-        inp.value = data[i] || '';
-        inp.onkeydown = handleTab;
-        inp.oninput =() => { if (!restoring) savePopupState(); };
-        td.appendChild(inp); tr.appendChild(td);
-      }
-      // Notes
-      const notesTd = document.createElement('td');
-      const notesIn = document.createElement('input');
-      notesIn.maxLength = 20; notesIn.value = data[9] || '';
-      notesIn.onkeydown = handleTab;
-      notesIn.oninput = () => { if (!restoring) savePopupState(); };
-      notesTd.appendChild(notesIn); tr.appendChild(notesTd);
-      // Remove btn
-      const rmTd = document.createElement('td');
-      const rmBtn = document.createElement('button');
-      rmBtn.textContent = 'Remove'; rmBtn.className = 'remove-btn';
-      rmBtn.onclick = () => { removeRow(tr); savePopupState(); };
-      rmTd.appendChild(rmBtn); tr.appendChild(rmTd);
-      return tr;
-    }
-    function addRow(data=[], position=null) {
-      const body = document.getElementById('rcai-body');
-      const row = createRowElement(data);
-      if (typeof position === 'number') {
-        const ref = body.children[position+1] || null;
-        body.insertBefore(row, ref);
-      } else {
-        body.appendChild(row);
-      }
-      updateRowNumbers(); adjustPopupHeight();
-    }
-    function toggleMinimize() {
-      const pop = document.getElementById('rcai-popup');
-      const scr = document.getElementById('rcai-scroll');
-      const btn = document.getElementById('minimize-btn');
-      const header = document.querySelector('.rcai-header');
-      const hidden = scr.style.display === 'none';
-      if (hidden) {
-        scr.style.display = 'block';
-        pop.style.height = pop.dataset.expandedHeight || '';
-        pop.style.resize = 'vertical';
-        btn.textContent = '_';
-      } else {
-        pop.dataset.expandedHeight = pop.offsetHeight + 'px';
-        scr.style.display = 'none';
-        pop.style.height = header.offsetHeight + 'px';
-        pop.style.resize = 'none';
-        btn.textContent = '▢';
-      }
-    }
-    function copyData() {
-      const widths = [4,12,12,18,6,10,8,8,8,34,20];
-      let out = 'RCAI RESULTS:\n';
-      const hdr = ['#','FNSKU','DECISION','RC SUMMARY','DISC','FAULT','FOUND','DENY','RMS','BLURB','NOTES'];
-      out += '|' + hdr.map((h,i) => h.padEnd(widths[i])).join('|') + '\n';
-      let tF=0, tD=0, tR=0;
-      document.querySelectorAll('#rcai-body tr:not([data-header])').forEach(r => {
-        const cells = Array.from(r.querySelectorAll('td')).slice(0,11);
-        const vals = cells.map((cell,i) => {
-          let v = cell.querySelector('input')?.value || '-';
-          if (i === 3) {
-            const seg = v.split(/[\/,]|\s{2,}/).map(s=>s.trim()).filter(Boolean);
-            if (seg.length > 1) {
-              const dflt = seg.map(s=>s.split(' ')[0]).join(', ');
-              const exc = seg.map(s => {
-                if (s==='Item Substitution') return 'Item Sub';
-                if (s==='Item Label Defect') return 'Item Label';
-                if (s==='Seller Short Ship') return 'Short Ship';
-                return s.split(' ')[0];
-              }).join(', ');
-              if (dflt.length < widths[i]) v = dflt;
-              else if (exc.length < widths[i]) v = exc;
-              else v = dflt.slice(0,widths[i]-1);
-            } else if (v.length >= widths[i]) {
-              v = v.slice(0,widths[i]-1);
-            }
+      out += '|' + vals.join('|') + '\n';
+    });
+    const total = widths.map((w,i) => {
+      if (i === 5) return 'TOTALS →'.padEnd(w);
+      if (i === 6) return tF.toString().padEnd(w);
+      if (i === 7) return tD.toString().padEnd(w);
+      if (i === 8) return tR.toString().padEnd(w);
+      return ''.padEnd(w);
+    });
+    out += '|' + total.join('|') + '\n';
+    navigator.clipboard.writeText(out);
+  }
+
+  function autofillFromPage(append=false) {
+    const codeRx = /^[A-Z0-9]{10}$/;
+    const decRx = /^(DECLINE|APPROVE|PENDING|PARTIAL_DECLINE|MANUAL)$/i;
+    const coll = [];
+
+    const detailTable = Array.from(document.querySelectorAll('table')).find(table => {
+      const headers = table.querySelectorAll('th');
+      return Array.from(headers).some(th =>
+        th.textContent.includes('Fnsku') ||
+        th.textContent.includes('ASIN') ||
+        th.textContent.includes('Decision')
+      );
+    });
+
+    if (detailTable) {
+      const rows = detailTable.querySelectorAll('tbody tr, tr:not(:first-child)');
+      rows.forEach((row, index) => {
+        const cells = row.querySelectorAll('td');
+        if (cells.length >= 10) {
+          const fnsku = cells[0]?.textContent?.trim();
+          const decision = cells[9]?.textContent?.trim();
+          const rcSummary = cells[10]?.textContent?.trim();
+          const shortage = cells[8]?.textContent?.trim() || '';
+          const reimbursable = cells[7]?.textContent?.trim() || '';
+
+          if (fnsku && codeRx.test(fnsku) && decision && decRx.test(decision)) {
+            const fault = determineFaultFromSummary(rcSummary);
+            coll.push([
+              fnsku,
+              decision.toUpperCase().replace('PARTIAL_DECLINE','PARTIAL'),
+              rcSummary || '',
+              shortage,
+              fault,
+              '', '', '', '', ''
+            ]);
           }
-          if (i === 6) tF += parseFloat(v) || 0;
-          if (i === 7) tD += parseFloat(v) || 0;
-          if (i === 8) tR += parseFloat(v) || 0;
-          return v.slice(0,widths[i]-1).padEnd(widths[i]);
-        });
-        out += '|' + vals.join('|') + '\n';
-      });
-      const total = widths.map((w,i) => {
-        if (i === 5) return 'TOTALS →'.padEnd(w);
-        if (i === 6) return tF.toString().padEnd(w);
-        if (i === 7) return tD.toString().padEnd(w);
-        if (i === 8) return tR.toString().padEnd(w);
-        return ''.padEnd(w);
-      });
-      out += '|' + total.join('|') + '\n';
-      navigator.clipboard.writeText(out);
-    }
-    function autofillFromPage(append=false) {
-      const elems = Array.from(document.querySelectorAll('body *'));
-      const codeRx = /^[A-Z0-9]{10}$/;
-      const decRx = /^(DECLINE|APPROVE|PENDING|PARTIAL_DECLINE|MANUAL)$/i;
-      const coll = [];
-      elems.forEach((el,i) => {
-        const txt = (el.textContent||'').trim();
-        if (!decRx.test(txt)) return;
-        const decision = txt.toUpperCase().replace('PARTIAL_DECLINE','PARTIAL');
-        const codes = [];
-        const disc = elems[i-2]?.textContent?.trim()||'';
-        for (let j=i-1; j>=Math.max(0,i-15); j--) {
-          const t = elems[j].textContent?.trim()||'';
-          if (codeRx.test(t)) codes.push(t);
         }
-        const next = elems[i+1]?.textContent?.trim()||'';
-        const rcSummary = next.split(',').map(it=>it.replace(/\/\d+/g,'').trim()||it.split(' ')[0]).join(', ');
-        let fault = 'NONE';
-        for (let k=i+1; k<Math.min(elems.length,i+20); k++) {
-          const s = (elems[k].textContent||'').toLowerCase();
-          if (s.includes('summary of the findings')) {
-            const hasS = s.includes('no shortage was caused by seller fault');
-            const hasA = s.includes('no shortage was caused by amazon fault');
-            if (!hasS && hasA) fault = 'Seller';
-            else if (!hasA && hasS) fault = 'Amazon';
-            else if (!hasS && !hasA) fault = 'BOTH';
+      });
+    }
+
+    if (coll.length === 0) {
+      const allElements = Array.from(document.querySelectorAll('*'));
+      const decisions = [];
+      allElements.forEach((el, i) => {
+        const txt = el.textContent?.trim();
+        if (txt && decRx.test(txt)) {
+          decisions.push({ element: el, index: i, decision: txt });
+        }
+      });
+
+      decisions.forEach(({ element, index, decision }) => {
+        const searchRange = 50;
+        let fnsku = '', rcSummary = '', shortage = '';
+
+        for (let i = Math.max(0, index - searchRange); i < Math.min(allElements.length, index + searchRange); i++) {
+          const elText = allElements[i].textContent?.trim();
+          if (elText && codeRx.test(elText)) {
+            fnsku = elText;
             break;
           }
         }
-        if (codes.length >= 2) {
-          coll.push([codes[1], decision, rcSummary, disc, fault, '', '', '', '', '']);
+
+        const parentText = element.closest('tr')?.textContent || element.parentElement?.textContent || '';
+        if (parentText.includes('Item Substitution')) rcSummary = 'Item Substitution';
+        else if (parentText.includes('Carton Missing')) rcSummary = 'Carton Missing';
+        else if (parentText.includes('FC Operation')) rcSummary = 'FC Operation';
+        else rcSummary = 'Unknown';
+
+        const numberMatch = parentText.match(/\b(\d+)\b/);
+        if (numberMatch) shortage = numberMatch[1];
+
+        if (fnsku) {
+          const fault = determineFaultFromSummary(rcSummary);
+          coll.push([
+            fnsku,
+            decision.toUpperCase().replace('PARTIAL_DECLINE','PARTIAL'),
+            rcSummary,
+            shortage,
+            fault,
+            '', '', '', '', ''
+          ]);
         }
       });
-      if (!append) {
-        document.querySelectorAll('#rcai-body tr:not([data-header])').forEach(r => r.remove());
-      }
-      coll.forEach(r => addRow(r));
-      updateRowNumbers();
-      adjustPopupHeight();
-    }
-    function createPopup() {
-      if (popupVisible) return;
-      popupVisible = true;
-      const popup = document.createElement('div');
-      popup.id = 'rcai-popup';
-      popup.innerHTML = `
-        <div class="rcai-header" id="rcai-drag">
-          <span>RCAI RESULTS:</span>
-          <div class="rcai-controls">
-            <button id="add-row">Add Row</button>
-            <button id="rescan-btn">Rescan</button>
-            <button id="undo-btn" disabled>Undo</button>
-            <button id="copy-only">Copy</button>
-            <button id="copy-close">Copy & Close</button>
-            <button id="minimize-btn">_</button>
-          </div>
-        </div>
-        <div id="rcai-scroll">
-          <table id="rcai-table"><tbody id="rcai-body"></tbody></table>
-        </div>`;
-      document.body.appendChild(popup);
-      document.getElementById('add-row').onclick = () => { addRow(); savePopupState(); };
-      document.getElementById('rescan-btn').onclick = () => { autofillFromPage(true); savePopupState(); };
-      document.getElementById('undo-btn').onclick = () => { undoRemove(); savePopupState(); };
-      document.getElementById('copy-only').onclick = copyData;
-      document.getElementById('copy-close').onclick = () => { copyData(); popup.remove(); popupVisible = false; };
-      document.getElementById('minimize-btn').onclick = toggleMinimize;
-      dragElement(popup);
-      addHeaderRow();
-      restoring = true;
-      const ok = restorePopupState();
-      restoring = false;
-      if (!ok) autofillFromPage(false);
-      if (!document.querySelector('#rcai-body tr:not([data-header])')) addRow();
-      adjustPopupHeight();
     }
 
-    // Helper functions for popup functionality
-    function dragElement(el) {
-      const handle = document.getElementById('rcai-drag');
-      let sx, sy, ox, oy;
-      handle.onmousedown = e => {
-        e.preventDefault();
-        sx = e.clientX; sy = e.clientY;
-        ox = el.offsetLeft; oy = el.offsetTop;
-        document.onmousemove = onDrag;
-        document.onmouseup = stopDrag;
-      };
-      function onDrag(e) {
-        e.preventDefault();
-        const dx = e.clientX - sx, dy = e.clientY - sy;
-        const nx = Math.max(0, Math.min(ox + dx, window.innerWidth- el.offsetWidth));
-        const ny = Math.max(0, Math.min(oy + dy, window.innerHeigh- el.offsetHeight));
-        el.style.left = nx + 'px';
-        el.style.top = ny + 'px';
+    const uniqueData = [];
+    const seenFNSKUs = new Set();
+    coll.forEach(row => {
+      if (!seenFNSKUs.has(row[0])) {
+        seenFNSKUs.add(row[0]);
+        uniqueData.push(row);
       }
-      function stopDrag() {
-        document.onmousemove = null;
-        document.onmouseup = null;
-      }
-    }
-
-    function adjustPopupHeight() {
-      const popup = document.getElementById('rcai-popup');
-      if (!popup) return;
-      const header = document.querySelector('.rcai-header');
-      const scrollA = document.getElementById('rcai-scroll');
-      if (!header || !scrollA) return;
-      const contentH = header.offsetHeight + scrollA.scrollHeight;
-      popup.style.maxHeight = contentH + 'px';
-      if (popup.offsetHeight > contentH) {
-        popup.style.height = contentH + 'px';
-      }
-    }
-
-    // Keyboard shortcut Alt+R to open popup (only when RCAI content is present)
-    document.addEventListener('keydown', e => {
-      if (e.altKey && e.key.toLowerCase() === 'r' && hasRCAI()) createPopup();
     });
+
+    if (!append) {
+      document.querySelectorAll('#rcai-body tr').forEach(r => r.remove());
+    }
+
+    uniqueData.forEach(r => addRow(r));
+    updateRowNumbers();
   }
+
+  function determineFaultFromSummary(summary) {
+    if (!summary) return 'NONE';
+    const text = summary.toLowerCase();
+    if (text.includes('item substitution') || text.includes('carton missing')) return 'Seller';
+    if (text.includes('fc operation')) return 'Amazon';
+    return 'NONE';
+  }
+
+  function createPopup() {
+    if (popupVisible) return;
+    popupVisible = true;
+    const popup = document.createElement('div');
+    popup.id = 'rcai-popup';
+    popup.innerHTML = `
+      <div class="rcai-header">
+        <div class="rcai-header-left">
+          <span>RCAI RESULTS</span>
+          <span class="row-counter-header">0 rows</span>
+        </div>
+        <div class="rcai-controls">
+          <button id="add-row">Add Row</button>
+          <button id="rescan-btn">Rescan</button>
+          <button id="undo-btn" disabled>Undo</button>
+          <button id="copy-only">Copy</button>
+          <button id="copy-close">Copy & Close</button>
+          <button id="minimize-btn">_</button>
+        </div>
+      </div>
+      <div id="rcai-scroll">
+        <table id="rcai-table"><tbody id="rcai-body"></tbody></table>
+      </div>`;
+    document.body.appendChild(popup);
+
+    document.getElementById('add-row').onclick = () => { addRow(); savePopupState(); };
+    document.getElementById('rescan-btn').onclick = () => { autofillFromPage(true); savePopupState(); };
+    document.getElementById('undo-btn').onclick = () => { undoRemove(); savePopupState(); };
+    document.getElementById('copy-only').onclick = copyData;
+    document.getElementById('copy-close').onclick = () => { copyData(); popup.remove(); popupVisible = false; };
+    document.getElementById('minimize-btn').onclick = toggleMinimize;
+
+    addHeaderRow();
+    restoring = true;
+    const ok = restorePopupState();
+    restoring = false;
+    if (!ok) autofillFromPage(false);
+    if (!document.querySelector('#rcai-body tr')) addRow();
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.altKey && e.key.toLowerCase() === 'r' && hasRCAI()) createPopup();
+  });
+}
 
   //////////////////////////////////
   // 4) Serenity ID Extractor     //
@@ -1024,22 +1418,11 @@
       alert(`Copied ${allResults.size} Serenity ID(s) from ${startDate} to ${endDate} across ${pageCount} pages. Total Quantity: ${total}`);
     }
 
-    const btn = document.createElement('button');
-    btn.textContent = 'Extract Serenity IDs';
-    Object.assign(btn.style, {
-      position: 'fixed',
-      bottom: '20px',
-      right: '20px',
-      zIndex: '9999',
-      padding: '10px 14px',
-      fontSize: '14px',
-      background: '#000',
-      color: '#fff',
-      border: 'none',
-      borderRadius: '6px',
-      cursor: 'pointer',
-      boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
-    });
+      const btn = document.createElement('button');
+      btn.className = 'standard-floating-btn';
+      btn.textContent = 'Extract Serenity IDs';
+      btn.style.bottom = '20px';
+      btn.style.right = '20px';
     btn.addEventListener('click', extractSerenityIDs);
     document.body.appendChild(btn);
   }
@@ -1258,7 +1641,7 @@ if (location.href.includes('fba-registration-console-na.aka.amazon.com')) {
 
 
 /////////////////////////////////
-// 6) Check Mapping    //
+// 6) Check Mapping - IMPROVED UI //
 /////////////////////////////////
 
 if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fnsku-commingling-console-na.aka.amazon.com/')) {
@@ -1266,6 +1649,209 @@ if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fn
 
     let isSearching = false;
     let searchResults = [];
+
+    // Add improved CSS styles for Check Mapping
+    GM_addStyle(`
+        #mid-search-panel {
+            position: fixed;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+            z-index: 10000;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            width: 380px;
+            overflow: hidden;
+            border: 1px solid #e1e5e9;
+            animation: slideUpIn 0.3s ease-out;
+        }
+
+        @keyframes slideUpIn {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .mid-panel-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 12px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .mid-panel-title {
+            color: white;
+            font-size: 16px;
+            font-weight: 700;
+            margin: 0;
+        }
+
+        .mid-panel-close {
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 16px;
+            line-height: 1;
+            transition: background 0.2s ease;
+        }
+
+        .mid-panel-close:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        .mid-panel-content {
+            padding: 16px;
+            background: #fafbfc;
+        }
+
+        .mid-input-group {
+            margin-bottom: 16px;
+        }
+
+        .mid-input-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #2d3748;
+            font-size: 14px;
+        }
+
+        .mid-input-field {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e1e5e9;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+            transition: all 0.2s ease;
+            background: white;
+            font-family: inherit;
+            box-sizing: border-box;
+        }
+
+        .mid-input-field:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .mid-search-btn {
+            width: 100%;
+            padding: 12px 16px;
+            background: #000000;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: inherit;
+            box-sizing: border-box;
+            margin-bottom: 0;
+        }
+
+        .mid-search-btn:hover:not(:disabled) {
+            background: #333333;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .mid-search-btn:disabled {
+            background: #666666;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .mid-status {
+            font-size: 13px;
+            text-align: center;
+            min-height: 18px;
+            margin: 12px 0 0 0;
+            padding: 8px;
+            border-radius: 6px;
+            font-weight: 500;
+        }
+
+        .mid-status:empty {
+            padding: 0;
+            margin: 0;
+            min-height: 0;
+        }
+
+        .mid-status.info {
+            background: #dbeafe;
+            color: #1e40af;
+            border: 1px solid #bfdbfe;
+        }
+        .mid-status.success {
+            background: #dcfce7;
+            color: #166534;
+            border: 1px solid #bbf7d0;
+        }
+        .mid-status.error {
+            background: #fef2f2;
+            color: #dc2626;
+            border: 1px solid #fecaca;
+        }
+        .mid-status.warning {
+            background: #fffbeb;
+            color: #d97706;
+            border: 1px solid #fed7aa;
+        }
+
+        .mid-results {
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 12px;
+            border-radius: 6px;
+            background: white;
+            border: 1px solid #e1e5e9;
+        }
+
+        .mid-results:empty {
+            display: none !important;
+        }
+
+        .mid-result-item {
+            margin: 8px;
+            padding: 12px;
+            background: #f8fafc;
+            border-radius: 6px;
+            border-left: 3px solid #667eea;
+            font-size: 12px;
+        }
+
+        .mid-result-title {
+            font-weight: 600;
+            color: #1e293b;
+            margin-bottom: 6px;
+        }
+
+        .mid-result-details {
+            color: #64748b;
+            line-height: 1.4;
+        }
+
+        .mid-result-log {
+            padding: 6px;
+            margin: 2px 8px;
+            font-size: 11px;
+            color: #6b7280;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .mid-result-log:last-child {
+            border-bottom: none;
+        }
+    `);
 
     // Create floating button
     function createFloatingButton() {
@@ -1276,22 +1862,9 @@ if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fn
         btn.id = 'fnsku-mid-search-btn';
         btn.textContent = 'MID Search';
 
-        Object.assign(btn.style, {
-            position: 'fixed',
-            bottom: '20px',
-            right: '20px',
-            zIndex: '9999',
-            padding: '12px 16px',
-            fontSize: '14px',
-            fontWeight: 'bold',
-            background: '#000',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
-            transition: 'all 0.3s ease'
-        });
+        btn.className = 'standard-floating-btn';
+        btn.style.bottom = '20px';
+        btn.style.right = '20px';
 
         btn.addEventListener('click', showMidSearchPanel);
         document.body.appendChild(btn);
@@ -1299,7 +1872,7 @@ if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fn
         console.log('FNSKU MID Search: Floating button created');
     }
 
-    // Create search panel
+    // Create search panel - IMPROVED VERSION
     function showMidSearchPanel() {
         // Remove existing panel if present
         const existing = document.getElementById('mid-search-panel');
@@ -1313,79 +1886,29 @@ if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fn
 
         panel.innerHTML = `
             <div class="mid-panel-header">
-                <span>🔍 MID Search Tool</span>
-                <button id="close-mid-panel" style="background: none; border: none; color: #666; font-size: 18px; cursor: pointer; padding: 0; margin: 0;">&times;</button>
+                <span class="mid-panel-title">MID Search Tool</span>
+                <button class="mid-panel-close" id="close-mid-panel">&times;</button>
             </div>
             <div class="mid-panel-content">
-                <div style="margin-bottom: 15px;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: bold; color: #333;">Enter MID to Search:</label>
-                    <input type="text" id="mid-search-input" placeholder="Paste MID here..."
-                           style="width: 100%; padding: 8px; border: 2px solid #ddd; border-radius: 4px; font-size: 14px; outline: none;" />
+                <div class="mid-input-group">
+                    <label class="mid-input-label">Enter MID to Search:</label>
+                    <input type="text" id="mid-search-input" class="mid-input-field" placeholder="Paste MID here..." />
                 </div>
-                <div style="margin-bottom: 15px;">
-                    <button id="start-mid-search" style="widwidth: 100%; padding: 10px; background: #007BFF; color: white; border: none; border-radius: 4px; font-size: 14px; font-weight: bold; cursor: pointer;">
-                        🔍 Search All Pages
-                    </button>
-                </div>
-                <div id="search-status" style="font-size: 12px; color: #666; text-align: center; min-height: 20px;"></div>
-                <div id="search-results" s" style="margin-top: 10px; font-size: 12px; max-height: 150px; overflow-y: auto;"></div>
+                <button id="start-mid-search" class="mid-search-btn">
+                    Search All Pages
+                </button>
+                <div id="search-status" class="mid-status"></div>
+                <div id="search-results" class="mid-results" style="display: none;"></div>
             </div>
         `;
 
-        // Panel styling
+        // Position panel
         Object.assign(panel.style, {
-            position: 'fixed',
             bottom: '80px',
-            right: '20px',
-            width: '320px',
-            background: 'white',
-            border: '2px solid #333',
-            borderRadius: '8px',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
-            zIndex: '1001',
-            fontFamily: 'Arial, sans-serif',
-            animation: 'slideUp 0.3s ease-out'
+            right: '20px'
         });
 
         document.body.appendChild(panel);
-
-        // Add animation CSS if not already present
-        if (!document.getElementById('mid-search-animations')) {
-            const style = document.createElement('style');
-            style.id = 'mid-search-animations';
-            style.textContent = `
-                @keyframes slideUp {
-                    from { transform: translateY(20px); opacity: 0; }
-                    to { transform: translateY(0); opacity: 1; }
-                }
-                .mid-panel-header {
-                    background: #f0f0f0;
-                    padding: 12px 16px;
-                    border-bottom: 1px solid #ddd;
-                    font-weight: bold;
-                    font-size: 16px;
-                    border-radius: 6px 6px 0 0;
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                }
-                .mid-panel-content {
-                    padding: 16px;
-                }
-                #mid-search-input:focus {
-                    border-color: #007BFF !important;
-                    box-shadow: 0 0 0 3px rgba(0,123,255,0.25) !important;
-                }
-                #start-mid-search:hover:not(:disabled) {
-                    background: #0056b3 !important;
-                }
-                #start-mid-search:disabled {
-                    background: #6c757d !important;
-                    cursor: not-allowed !important;
-                }
-            `;
-            document.head.appendChild(style);
-        }
 
         // Event listeners
         document.getElementById('close-mid-panel').onclick = () => panel.remove();
@@ -1421,8 +1944,9 @@ if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fn
         // Start search
         isSearching = true;
         button.disabled = true;
-        button.textContent = '🔄 Searching...';
+        button.textContent = 'Searching...';
         results.innerHTML = '';
+        results.style.display = 'none';
         searchResults = [];
 
         // Clear any previous highlights
@@ -1434,11 +1958,11 @@ if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fn
             const searchMIDLower = searchMID.toLowerCase();
             let found = false;
 
-            showStatus('🔍 Searching pages...', 'info');
+            showStatus('Searching pages...', 'info');
 
             while (pageCount < maxPages && !found) {
                 pageCount++;
-                button.textContent = `🔄 Page ${pageCount}`;
+                button.textContent = `Page ${pageCount}`;
 
                 // Search current page
                 const pageResults = searchCurrentPage(searchMIDLower, pageCount);
@@ -1477,28 +2001,27 @@ if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fn
 
             // Final results
             if (found) {
-                showStatus(`✅ Found match on page ${pageCount}!`, 'success');
+                showStatus(`Found match on page ${pageCount}!`, 'success');
                 displayResults(true);
             } else {
-                showStatus(`❌ No matches found for "${searchMID}" across ${pageCount} pages.`, 'error');
+                showStatus(`No matches found for "${searchMID}" across ${pageCount} pages.`, 'error');
                 addResultLine('No matches found on any page.');
             }
 
             if (pageCount >= maxPages) {
-                showStatus(`⚠️ Search stopped at ${maxPages} page limit.`, 'warning');
+                showStatus(`Search stopped at ${maxPages} page limit.`, 'warning');
             }
 
         } catch (error) {
             console.error('FNSKU MID Search: Error during search:', error);
-            showStatus('❌ Error occurred during search. Check console for details.', 'error');
+            showStatus('Error occurred during search. Check console for details.', 'error');
         } finally {
             // Reset button
             isSearching = false;
             button.disabled = false;
-            button.textContent = '🔍 Search All Pages';
+            button.textContent = 'Search All Pages';
         }
     }
-
 
     function searchCurrentPage(searchMIDLower, pageNumber) {
         const results = [];
@@ -1543,7 +2066,7 @@ if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fn
         return results;
     }
 
-    // Display functions
+    // Display functions with improved styling
     function displayResults(final = false) {
         const resultsDiv = document.getElementById('search-results');
         if (!resultsDiv) return;
@@ -1551,26 +2074,29 @@ if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fn
         let html = '';
 
         if (final && searchResults.length > 0) {
-            html += `<div style="font-weight: bold; color: #007BFF; margin-bottom: 10px;">
-                📋 Search Results (${searchResults.length} matches with same FNSKU/ASIN):</div>`;
+            html += `<div class="mid-result-title" style="padding: 8px; margin: 8px; background: white; border-radius: 6px;">
+                Search Results (${searchResults.length} matches with same FNSKU/ASIN):</div>`;
         }
 
         searchResults.forEach((result, index) => {
             html += `
-                <div style="margin-bottom: 8px; padding: 8px; background: #f8f9fa; border-radius: 4px; border-left: 3px solid #007BFF;">
-                    <div style="font-weight: bold;">Match ${index + 1} (Page ${result.page})</div>
-                    <div style="font-size: 11px; color: #666;">
-                        Merchant: ${result.merchantId}<br>
-                        MSKU: ${result.msku}<br>
-                        FNSKU/ASIN: ${result.fnsku}<br>
-                        Condition: ${result.condition}<br>
-                        Status: ${result.status}
+                <div class="mid-result-item">
+                    <div class="mid-result-title">Match ${index + 1} (Page ${result.page})</div>
+                    <div class="mid-result-details">
+                        <strong>Merchant:</strong> ${result.merchantId}<br>
+                        <strong>MSKU:</strong> ${result.msku}<br>
+                        <strong>FNSKU/ASIN:</strong> ${result.fnsku}<br>
+                        <strong>Condition:</strong> ${result.condition}<br>
+                        <strong>Status:</strong> ${result.status}
                     </div>
                 </div>
             `;
         });
 
-        resultsDiv.innerHTML = html;
+        if (html) {
+            resultsDiv.innerHTML = html;
+            resultsDiv.style.display = 'block';
+        }
     }
 
     // Helper functions
@@ -1614,9 +2140,10 @@ if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fn
         if (!resultsDiv) return;
 
         const line = document.createElement('div');
-        line.style.cssText = 'margin-bottom: 5px; padding: 5px; font-size: 11px; color: #666; border-bottom: 1px solid #eee;';
+        line.className = 'mid-result-log';
         line.textContent = text;
         resultsDiv.appendChild(line);
+        resultsDiv.style.display = 'block';
         resultsDiv.scrollTop = resultsDiv.scrollHeight;
     }
 
@@ -1624,15 +2151,8 @@ if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fn
         const statusDiv = document.getElementById('search-status');
         if (!statusDiv) return;
 
-        const colors = {
-            info: '#0c5460',
-            success: '#155724',
-            error: '#721c24',
-            warning: '#856404'
-        };
-
         statusDiv.textContent = message;
-        statusDiv.style.color = colors[type] || colors.info;
+        statusDiv.className = `mid-status ${type}`;
     }
 
     function findNextButton() {
