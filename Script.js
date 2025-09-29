@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     3.9
+// @version     4.1
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker and Check Mapping with Alt+X toggle panel
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
 // @include     https://paragon-na.amazon.com/hz/case?caseId=*
@@ -614,8 +614,9 @@ const STANDARD_BUTTON_STYLE = `
     }
 
 
+
 /////////////////////////////////
-// 3) RCAI Results Popup - FIXED VERSION //
+// 3) RCAI Results Popup - COMPLETE FIXED VERSION //
 /////////////////////////////////
 
 if (isFeatureEnabled('rcaiResults') && /console\.harmony\.a2z\.com/.test(location.href)) {
@@ -790,71 +791,70 @@ if (isFeatureEnabled('rcaiResults') && /console\.harmony\.a2z\.com/.test(locatio
       text-overflow: ellipsis !important;
     }
 
-    /* Column widths as requested */
-    #rcai-table td:nth-child(1), #rcai-table th:nth-child(1) { /* # */
+    #rcai-table td:nth-child(1), #rcai-table th:nth-child(1) {
       width: 30px !important;
       min-width: 30px !important;
       max-width: 30px !important;
     }
 
-    #rcai-table td:nth-child(2), #rcai-table th:nth-child(2) { /* FNSKU */
+    #rcai-table td:nth-child(2), #rcai-table th:nth-child(2) {
       width: 90px !important;
       min-width: 90px !important;
       max-width: 90px !important;
     }
 
-    #rcai-table td:nth-child(3), #rcai-table th:nth-child(3) { /* DECISION */
+    #rcai-table td:nth-child(3), #rcai-table th:nth-child(3) {
       width: 70px !important;
       min-width: 70px !important;
       max-width: 70px !important;
     }
 
-    #rcai-table td:nth-child(4), #rcai-table th:nth-child(4) { /* RC SUMMARY */
+    #rcai-table td:nth-child(4), #rcai-table th:nth-child(4) {
       width: 150px !important;
       min-width: 150px !important;
     }
 
-    #rcai-table td:nth-child(5), #rcai-table th:nth-child(5) { /* DISC */
+    #rcai-table td:nth-child(5), #rcai-table th:nth-child(5) {
       width: 45px !important;
       min-width: 45px !important;
       max-width: 45px !important;
     }
 
-    #rcai-table td:nth-child(6), #rcai-table th:nth-child(6) { /* FAULT */
+    #rcai-table td:nth-child(6), #rcai-table th:nth-child(6) {
       width: 60px !important;
       min-width: 60px !important;
       max-width: 60px !important;
     }
 
-    #rcai-table td:nth-child(7), #rcai-table th:nth-child(7) { /* FOUND */
+    #rcai-table td:nth-child(7), #rcai-table th:nth-child(7) {
+      width: 45px !important;
+      min-width: 55px !important;
+      max-width: 55px !important;
+    }
+
+    #rcai-table td:nth-child(8), #rcai-table th:nth-child(8) {
       width: 45px !important;
       min-width: 45px !important;
       max-width: 45px !important;
     }
 
-    #rcai-table td:nth-child(8), #rcai-table th:nth-child(8) { /* DENY */
+    #rcai-table td:nth-child(9), #rcai-table th:nth-child(9) {
       width: 45px !important;
       min-width: 45px !important;
       max-width: 45px !important;
     }
 
-    #rcai-table td:nth-child(9), #rcai-table th:nth-child(9) { /* RMS */
-      width: 45px !important;
-      min-width: 45px !important;
-      max-width: 45px !important;
-    }
-
-    #rcai-table td:nth-child(10), #rcai-table th:nth-child(10) { /* BLURB */
+    #rcai-table td:nth-child(10), #rcai-table th:nth-child(10) {
       width: 200px !important;
       min-width: 200px !important;
     }
 
-    #rcai-table td:nth-child(11), #rcai-table th:nth-child(11) { /* NOTES */
+    #rcai-table td:nth-child(11), #rcai-table th:nth-child(11) {
       width: auto !important;
       min-width: 300px !important;
     }
 
-    #rcai-table td:last-child, #rcai-table th:last-child { /* Remove button */
+    #rcai-table td:last-child, #rcai-table th:last-child {
       width: 25px !important;
       min-width: 25px !important;
       max-width: 25px !important;
@@ -909,6 +909,7 @@ if (isFeatureEnabled('rcaiResults') && /console\.harmony\.a2z\.com/.test(locatio
   `);
 
   function storageKey() { return 'rcai:' + location.href; }
+
   function savePopupState() {
     const rows = Array.from(document.querySelectorAll('#rcai-body tr'));
     const data = rows.map(r =>
@@ -916,6 +917,7 @@ if (isFeatureEnabled('rcaiResults') && /console\.harmony\.a2z\.com/.test(locatio
     );
     localStorage.setItem(storageKey(), JSON.stringify(data));
   }
+
   function restorePopupState() {
     const s = localStorage.getItem(storageKey());
     if (!s) return false;
@@ -928,6 +930,7 @@ if (isFeatureEnabled('rcaiResults') && /console\.harmony\.a2z\.com/.test(locatio
       return true;
     } catch { return false; }
   }
+
   function updateRowNumbers() {
     let c = 0;
     document.querySelectorAll('#rcai-body tr').forEach(r => {
@@ -969,6 +972,7 @@ if (isFeatureEnabled('rcaiResults') && /console\.harmony\.a2z\.com/.test(locatio
       }
     }
   }
+
   function removeRow(tr) {
     const all = Array.from(document.querySelectorAll('#rcai-body tr'));
     removedStack.push({
@@ -979,12 +983,14 @@ if (isFeatureEnabled('rcaiResults') && /console\.harmony\.a2z\.com/.test(locatio
     tr.remove();
     updateRowNumbers();
   }
+
   function undoRemove() {
     if (!removedStack.length) return;
     const { data, position } = removedStack.pop();
     addRow(data, position);
     if (!removedStack.length) document.getElementById('undo-btn').disabled = true;
   }
+
   function addHeaderRow() {
     const hdr = ["#","FNSKU","DECISION","RC SUMMARY","DISC","FAULT","FOUND","DENY","RMS","BLURB","NOTES"];
     const thead = document.createElement('thead');
@@ -999,13 +1005,13 @@ if (isFeatureEnabled('rcaiResults') && /console\.harmony\.a2z\.com/.test(locatio
       th.appendChild(inp);
       tr.appendChild(th);
     });
-    // Add empty header for remove button column
     const th = document.createElement('th');
     th.innerHTML = '';
     tr.appendChild(th);
     thead.appendChild(tr);
     document.getElementById('rcai-table').appendChild(thead);
   }
+
   function createRowElement(data=[]) {
     const tr = document.createElement('tr');
     const numTd = document.createElement('td');
@@ -1040,6 +1046,7 @@ if (isFeatureEnabled('rcaiResults') && /console\.harmony\.a2z\.com/.test(locatio
     tr.appendChild(rmTd);
     return tr;
   }
+
   function addRow(data=[], position=null) {
     const body = document.getElementById('rcai-body');
     if (!body) {
@@ -1110,89 +1117,131 @@ if (isFeatureEnabled('rcaiResults') && /console\.harmony\.a2z\.com/.test(locatio
   }
 
   function autofillFromPage(append=false) {
+    console.log('Starting autofillFromPage, append:', append);
+
     const codeRx = /^[A-Z0-9]{10}$/;
-    const decRx = /^(DECLINE|APPROVE|PENDING|PARTIAL_DECLINE|MANUAL)$/i;
+    const decRx = /^(DECLINE|APPROVE|PENDING|PARTIAL_DECLINE|PARTIAL|MANUAL)$/i;
     const coll = [];
 
-    const detailTable = Array.from(document.querySelectorAll('table')).find(table => {
-      const headers = table.querySelectorAll('th');
-      return Array.from(headers).some(th =>
-        th.textContent.includes('Fnsku') ||
-        th.textContent.includes('ASIN') ||
-        th.textContent.includes('Decision')
-      );
+    // Strategy 1: DOM Element scanning
+    console.log('Strategy 1: DOM element scanning...');
+    const elems = Array.from(document.querySelectorAll('body *'));
+    let foundData = false;
+
+    elems.forEach((el, i) => {
+      const txt = (el.textContent || '').trim();
+      if (!decRx.test(txt)) return;
+
+      const decision = txt.toUpperCase().replace('PARTIAL_DECLINE', 'PARTIAL');
+      const codes = [];
+
+      // Look for shortage quantity
+      let disc = '';
+      for (let j = i - 1; j >= Math.max(0, i - 10); j--) {
+        const t = (elems[j].textContent || '').trim();
+        if (t.toLowerCase().includes('shortage quantity')) {
+          for (let k = j + 1; k <= Math.min(elems.length - 1, j + 5); k++) {
+            const numText = (elems[k].textContent || '').trim();
+            if (/^\d+$/.test(numText)) {
+              disc = numText;
+              console.log('Found shortage quantity:', disc, 'near element', k);
+              break;
+            }
+          }
+          if (disc) break;
+        }
+        if (j === i - 2 && !disc) {
+          const fallbackText = t.trim();
+          if (/^\d+$/.test(fallbackText)) {
+            disc = fallbackText;
+          }
+        }
+      }
+
+      // Find FNSKU codes
+      for (let j = i - 1; j >= Math.max(0, i - 15); j--) {
+        const t = (elems[j].textContent || '').trim();
+        if (codeRx.test(t)) codes.push(t);
+      }
+
+      // Get RC Summary
+      const next = elems[i + 1]?.textContent?.trim() || '';
+      const rcSummary = next.split(',').map(it =>
+        it.replace(/\/\d+/g, '').trim() || it.split(' ')[0]
+      ).join(', ');
+
+      // Determine fault
+      let fault = 'NONE';
+      for (let k = i + 1; k < Math.min(elems.length, i + 20); k++) {
+        const s = (elems[k].textContent || '').toLowerCase();
+        if (s.includes('summary of the findings')) {
+          const hasS = s.includes('no shortage was caused by seller fault');
+          const hasA = s.includes('no shortage was caused by amazon fault');
+          if (!hasS && hasA) fault = 'Seller';
+          else if (!hasA && hasS) fault = 'Amazon';
+          else if (!hasS && !hasA) fault = 'BOTH';
+          break;
+        }
+      }
+
+      if (codes.length >= 2) {
+        coll.push([codes[1], decision, rcSummary, disc, fault, '', '', '', '', '']);
+        foundData = true;
+        console.log('Added row:', codes[1], 'with shortage:', disc);
+      }
     });
 
-    if (detailTable) {
-      const rows = detailTable.querySelectorAll('tbody tr, tr:not(:first-child)');
-      rows.forEach((row, index) => {
-        const cells = row.querySelectorAll('td');
-        if (cells.length >= 10) {
-          const fnsku = cells[0]?.textContent?.trim();
-          const decision = cells[9]?.textContent?.trim();
-          const rcSummary = cells[10]?.textContent?.trim();
-          const shortage = cells[8]?.textContent?.trim() || '';
-          const reimbursable = cells[7]?.textContent?.trim() || '';
+    // Strategy 2: Table-based extraction as fallback
+    if (!foundData) {
+      console.log('Strategy 2: Table-based extraction...');
+      const allTables = document.querySelectorAll('table');
 
-          if (fnsku && codeRx.test(fnsku) && decision && decRx.test(decision)) {
+      allTables.forEach((table) => {
+        const headerRow = Array.from(table.querySelectorAll('tr')).find(row => {
+          const text = row.textContent.toLowerCase();
+          return text.includes('fnsku') && text.includes('shortage quantity') && text.includes('decision');
+        });
+
+        if (!headerRow) return;
+
+        const headerCells = headerRow.querySelectorAll('th, td');
+        let fnskuIndex = -1, asinIndex = -1, decisionIndex = -1, summaryIndex = -1, shortageIndex = -1;
+
+        headerCells.forEach((cell, index) => {
+          const text = cell.textContent.toLowerCase().trim();
+          if (text === 'fnsku') fnskuIndex = index;
+          else if (text === 'asin') asinIndex = index;
+          else if (text === 'decision') decisionIndex = index;
+          else if (text.includes('root cause')) summaryIndex = index;
+          else if (text === 'shortage quantity') shortageIndex = index;
+        });
+
+        if (fnskuIndex === -1 || decisionIndex === -1 || shortageIndex === -1) return;
+
+        const allRows = Array.from(table.querySelectorAll('tr'));
+        const dataRows = allRows.filter(row => row !== headerRow && row.querySelectorAll('td').length > 0);
+
+        dataRows.forEach((row) => {
+          const cells = row.querySelectorAll('td');
+          if (cells.length === 0) return;
+
+          const fnsku = cells[fnskuIndex]?.textContent?.trim() || '';
+          const asin = cells[asinIndex]?.textContent?.trim() || '';
+          const decision = cells[decisionIndex]?.textContent?.trim() || '';
+          const rcSummary = cells[summaryIndex]?.textContent?.trim() || '';
+          const shortage = cells[shortageIndex]?.textContent?.trim() || '';
+
+          if (fnsku && asin && fnsku === asin && decision && decRx.test(decision)) {
             const fault = determineFaultFromSummary(rcSummary);
-            coll.push([
-              fnsku,
-              decision.toUpperCase().replace('PARTIAL_DECLINE','PARTIAL'),
-              rcSummary || '',
-              shortage,
-              fault,
-              '', '', '', '', ''
-            ]);
+            const normalizedDecision = decision.toUpperCase().replace('PARTIAL_DECLINE', 'PARTIAL');
+            coll.push([fnsku, normalizedDecision, rcSummary, shortage, fault, '', '', '', '', '']);
+            foundData = true;
           }
-        }
+        });
       });
     }
 
-    if (coll.length === 0) {
-      const allElements = Array.from(document.querySelectorAll('*'));
-      const decisions = [];
-      allElements.forEach((el, i) => {
-        const txt = el.textContent?.trim();
-        if (txt && decRx.test(txt)) {
-          decisions.push({ element: el, index: i, decision: txt });
-        }
-      });
-
-      decisions.forEach(({ element, index, decision }) => {
-        const searchRange = 50;
-        let fnsku = '', rcSummary = '', shortage = '';
-
-        for (let i = Math.max(0, index - searchRange); i < Math.min(allElements.length, index + searchRange); i++) {
-          const elText = allElements[i].textContent?.trim();
-          if (elText && codeRx.test(elText)) {
-            fnsku = elText;
-            break;
-          }
-        }
-
-        const parentText = element.closest('tr')?.textContent || element.parentElement?.textContent || '';
-        if (parentText.includes('Item Substitution')) rcSummary = 'Item Substitution';
-        else if (parentText.includes('Carton Missing')) rcSummary = 'Carton Missing';
-        else if (parentText.includes('FC Operation')) rcSummary = 'FC Operation';
-        else rcSummary = 'Unknown';
-
-        const numberMatch = parentText.match(/\b(\d+)\b/);
-        if (numberMatch) shortage = numberMatch[1];
-
-        if (fnsku) {
-          const fault = determineFaultFromSummary(rcSummary);
-          coll.push([
-            fnsku,
-            decision.toUpperCase().replace('PARTIAL_DECLINE','PARTIAL'),
-            rcSummary,
-            shortage,
-            fault,
-            '', '', '', '', ''
-          ]);
-        }
-      });
-    }
+    console.log('Total entries found:', coll.length);
 
     const uniqueData = [];
     const seenFNSKUs = new Set();
@@ -1202,6 +1251,8 @@ if (isFeatureEnabled('rcaiResults') && /console\.harmony\.a2z\.com/.test(locatio
         uniqueData.push(row);
       }
     });
+
+    console.log('Unique entries:', uniqueData.length);
 
     if (!append) {
       document.querySelectorAll('#rcai-body tr').forEach(r => r.remove());
@@ -1215,7 +1266,8 @@ if (isFeatureEnabled('rcaiResults') && /console\.harmony\.a2z\.com/.test(locatio
     if (!summary) return 'NONE';
     const text = summary.toLowerCase();
     if (text.includes('item substitution') || text.includes('carton missing')) return 'Seller';
-    if (text.includes('fc operation')) return 'Amazon';
+    if (text.includes('fc operation') || text.includes('amazon') || text.includes('warehouse')) return 'Amazon';
+    if (text.includes('damaged') || text.includes('defective')) return 'Unknown';
     return 'NONE';
   }
 
@@ -1263,6 +1315,9 @@ if (isFeatureEnabled('rcaiResults') && /console\.harmony\.a2z\.com/.test(locatio
     if (e.altKey && e.key.toLowerCase() === 'r' && hasRCAI()) createPopup();
   });
 }
+
+
+
 
   //////////////////////////////////
   // 4) Serenity ID Extractor     //
