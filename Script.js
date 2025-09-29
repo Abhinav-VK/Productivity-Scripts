@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     3.7
+// @version     3.8
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker and Check Mapping with Alt+X toggle panel
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
 // @include     https://paragon-na.amazon.com/hz/case?caseId=*
@@ -1985,17 +1985,36 @@ if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fn
                 }
 
                 if (!found) {
-                    // Look for next button
+                    // Look for next button BEFORE trying to continue
                     const nextBtn = findNextButton();
                     if (!nextBtn) {
-                        console.log('FNSKU MID Search: No more pages available');
-                        break;
+                        console.log('FNSKU MID Search: No next button found - reached end of results');
+                        //addResultLine(`Page ${pageCount}: End of results (no next button)`);
+                        //break; // Exit the loop immediately
                     }
 
                     // Click next and wait
                     nextBtn.click();
-                    await waitForPageLoad(5000);
+
+                    // Wait for page load and add timeout check
+                    const pageLoadSuccess = await waitForPageLoad(5000);
+                    if (!pageLoadSuccess) {
+                        console.log('FNSKU MID Search: Page load timeout');
+                        addResultLine(`Page ${pageCount}: Page load timeout`);
+                        break;
+                    }
+
                     await new Promise(resolve => setTimeout(resolve, 800));
+
+                    // Double-check that we actually have new content after clicking next
+                    const currentPageContent = document.body.innerText;
+
+                    // If the page content seems unchanged or no new results, we might be stuck
+                    if (currentPageContent.includes('no results') || currentPageContent.includes('no matches')) {
+                        console.log('FNSKU MID Search: Detected end of results');
+                        addResultLine(`Page ${pageCount}: No more results available`);
+                        break;
+                    }
                 }
             }
 
@@ -2004,17 +2023,19 @@ if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fn
                 showStatus(`Found match on page ${pageCount}!`, 'success');
                 displayResults(true);
             } else {
-                showStatus(`No matches found for "${searchMID}" across ${pageCount} pages.`, 'error');
-                addResultLine('No matches found on any page.');
+                showStatus(`No matches found for "${searchMID}" across ${pageCount} pages.`, 'warning');
+                addResultLine(`Search completed - no matches found across ${pageCount} pages.`);
             }
 
             if (pageCount >= maxPages) {
                 showStatus(`Search stopped at ${maxPages} page limit.`, 'warning');
+                addResultLine(`Reached maximum page limit of ${maxPages} pages.`);
             }
 
         } catch (error) {
             console.error('FNSKU MID Search: Error during search:', error);
             showStatus('Error occurred during search. Check console for details.', 'error');
+            addResultLine(`Error: ${error.message}`);
         } finally {
             // Reset button
             isSearching = false;
@@ -2155,51 +2176,65 @@ if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fn
         statusDiv.className = `mid-status ${type}`;
     }
 
+    // Enhanced findNextButton function with better detection:
     function findNextButton() {
+        // First try common pagination selectors
         const selectors = [
-            'button[aria-label*="next" i]',
-            'button[title*="next" i]',
-            'a[aria-label*="next" i]',
-            'a[title*="next" i]',
-            '.pagination button:not([disabled])',
-            '.pagination a:not(.disabled)',
+            'button[aria-label*="next" i]:not([disabled])',
+            'button[title*="next" i]:not([disabled])',
+            'a[aria-label*="next" i]:not(.disabled)',
+            'a[title*="next" i]:not(.disabled)',
+            '.pagination button:not([disabled]):not(.current)',
+            '.pagination a:not(.disabled):not(.active)',
             '.pager button:not([disabled])',
             '.pager a:not(.disabled)'
         ];
 
         for (const selector of selectors) {
-            const buttons = document.querySelectorAll(selector);
-            for (const btn of buttons) {
-                if (!btn.disabled && btn.offsetParent !== null &&
-                    window.getComputedStyle(btn).display !== 'none') {
-                    return btn;
-                }
-            }
-        }
-
-        const clickableElements = document.querySelectorAll('button, a, [role="button"], input[type="button"], input[type="submit"]');
-        for (const el of clickableElements) {
-            const text = (el.textContent || el.value || '').toLowerCase().trim();
-            const nextWords = ['next', 'next page', '→', '>', 'continue', 'more'];
-
-            if (nextWords.some(word => text.includes(word))) {
-                if (!el.disabled && el.offsetParent !== null &&
+            const elements = document.querySelectorAll(selector);
+            for (const el of elements) {
+                if (el.offsetParent !== null &&
                     window.getComputedStyle(el).display !== 'none' &&
-                    !text.includes('previous') && !text.includes('back')) {
-
+                    window.getComputedStyle(el).visibility !== 'hidden') {
                     return el;
                 }
             }
         }
 
+        // Then try text-based search
+        const clickableElements = document.querySelectorAll('button, a, [role="button"], input[type="button"], input[type="submit"]');
+
+        for (const el of clickableElements) {
+            const text = (el.textContent || el.value || '').toLowerCase().trim();
+            const nextWords = ['next', 'next page', '→', '>', 'continue', 'more'];
+
+            if (nextWords.some(word => text.includes(word))) {
+                // Make sure it's not a "previous" or "back" button
+                if (!text.includes('previous') && !text.includes('back') && !text.includes('prev')) {
+                    // Check if element is actually clickable and visible
+                    if (!el.disabled &&
+                        el.offsetParent !== null &&
+                        window.getComputedStyle(el).display !== 'none' &&
+                        window.getComputedStyle(el).visibility !== 'hidden' &&
+                        !el.classList.contains('disabled')) {
+
+                        return el;
+                    }
+                }
+            }
+        }
+
+        // No valid next button found
         return null;
     }
 
+    // Enhanced waitForPageLoad function to return success indicator:
     async function waitForPageLoad(timeout = 5000) {
         return new Promise(resolve => {
             let attempts = 0;
             const maxAttempts = timeout / 100;
             let lastRowCount = -1;
+            let stableCount = 0;
 
             const checkInterval = setInterval(() => {
                 attempts++;
@@ -2207,11 +2242,26 @@ if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fn
                 const currentRowCount = document.querySelectorAll('table tr').length;
                 const hasContent = currentRowCount > 1;
                 const noLoadingIndicator = !document.querySelector('.loading, .spinner, [aria-busy="true"], [aria-label*="loading" i]');
-                const contentStabilized = currentRowCount === lastRowCount;
 
-                if (hasContent && noLoadingIndicator && (contentStabilized || attempts >= maxAttempts)) {
+                // Check if content has stabilized
+                if (currentRowCount === lastRowCount) {
+                    stableCount++;
+                } else {
+                    stableCount = 0;
+                }
+
+                const contentStabilized = stableCount >= 3; // Content stable for 3 checks (300ms)
+
+                if (hasContent && noLoadingIndicator && contentStabilized) {
                     clearInterval(checkInterval);
-                    resolve();
+                    resolve(true); // Success
+                    return;
+                }
+
+                if (attempts >= maxAttempts) {
+                    clearInterval(checkInterval);
+                    resolve(false); // Timeout
+                    return;
                 }
 
                 lastRowCount = currentRowCount;
@@ -2231,7 +2281,6 @@ if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fn
     });
     observer.observe(document.body, { childList: true, subtree: true });
 }
-
 
 
 /////////////////////////////////
