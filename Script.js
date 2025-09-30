@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     4.1
+// @version     4.2
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker and Check Mapping with Alt+X toggle panel
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
 // @include     https://paragon-na.amazon.com/hz/case?caseId=*
@@ -2015,63 +2015,47 @@ if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fn
 
             showStatus('Searching pages...', 'info');
 
-            while (pageCount < maxPages && !found) {
-                pageCount++;
-                button.textContent = `Page ${pageCount}`;
+// Inside startMidSearch function, replace the while loop logic with:
+while (pageCount < maxPages && !found) {
+    pageCount++;
+    button.textContent = `Page ${pageCount}`;
 
-                // Search current page
-                const pageResults = searchCurrentPage(searchMIDLower, pageCount);
+    // First search current page for matches
+    const pageResults = searchCurrentPage(searchMIDLower, pageCount);
 
-                if (pageResults.length > 0) {
-                    // Only take the first result
-                    searchResults.push(pageResults[0]);
+    if (pageResults.length > 0) {
+        // Found a match on current page
+        searchResults.push(pageResults[0]);
+        highlightRow(pageResults[0].element, pageResults[0].mid);
+        displayResults();
+        addResultLine(`Page ${pageCount}: Found match! Stopping search.`);
+        found = true; // Stop searching
+        break;
+    } else {
+        addResultLine(`Page ${pageCount}: No matches`);
+    }
 
-                    // Highlight only the first matching row
-                    highlightRow(pageResults[0].element, pageResults[0].mid);
+    // Only look for next button if no match found
+    if (!found) {
+        const nextBtn = findNextButton();
+        if (!nextBtn) {
+            console.log('FNSKU MID Search: No next button found - reached end of results');
+            break;
+        }
 
-                    // Display result
-                    displayResults();
-                    addResultLine(`Page ${pageCount}: Found match! Stopping search.`);
+        // Click next and wait
+        nextBtn.click();
+        const pageLoadSuccess = await waitForPageLoad(5000);
+        if (!pageLoadSuccess) {
+            console.log('FNSKU MID Search: Page load timeout');
+            addResultLine(`Page ${pageCount}: Page load timeout`);
+            break;
+        }
 
-                    found = true; // Stop searching
-                    break;
-                } else {
-                    addResultLine(`Page ${pageCount}: No matches`);
-                }
+        await new Promise(resolve => setTimeout(resolve, 800));
+    }
+}
 
-                if (!found) {
-                    // Look for next button BEFORE trying to continue
-                    const nextBtn = findNextButton();
-                    if (!nextBtn) {
-                        console.log('FNSKU MID Search: No next button found - reached end of results');
-                        //addResultLine(`Page ${pageCount}: End of results (no next button)`);
-                        //break; // Exit the loop immediately
-                    }
-
-                    // Click next and wait
-                    nextBtn.click();
-
-                    // Wait for page load and add timeout check
-                    const pageLoadSuccess = await waitForPageLoad(5000);
-                    if (!pageLoadSuccess) {
-                        console.log('FNSKU MID Search: Page load timeout');
-                        addResultLine(`Page ${pageCount}: Page load timeout`);
-                        break;
-                    }
-
-                    await new Promise(resolve => setTimeout(resolve, 800));
-
-                    // Double-check that we actually have new content after clicking next
-                    const currentPageContent = document.body.innerText;
-
-                    // If the page content seems unchanged or no new results, we might be stuck
-                    if (currentPageContent.includes('no results') || currentPageContent.includes('no matches')) {
-                        console.log('FNSKU MID Search: Detected end of results');
-                        addResultLine(`Page ${pageCount}: No more results available`);
-                        break;
-                    }
-                }
-            }
 
             // Final results
             if (found) {
@@ -2119,9 +2103,7 @@ if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fn
                 const condition = cells[4]?.textContent?.trim() || '';
                 const status = cells[5]?.textContent?.trim() || '';
 
-                // Only include results where FNSKU and ASIN are the same
-                if (fnsku && asin && fnsku === asin &&
-                    merchantId.toLowerCase().includes(searchMIDLower)) {
+                if (fnsku && asin && merchantId.toLowerCase().includes(searchMIDLower)){
                     results.push({
                         element: row,
                         page: pageNumber,
@@ -2150,23 +2132,29 @@ if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fn
         let html = '';
 
         if (final && searchResults.length > 0) {
+            // Add match/mismatch information to the header
+            const fnskuAsinMatch = searchResults.some(r => r.fnsku === r.asin);
             html += `<div class="mid-result-title" style="padding: 8px; margin: 8px; background: white; border-radius: 6px;">
-                Search Results (${searchResults.length} matches with same FNSKU/ASIN):</div>`;
+            Search Results (${searchResults.length} matches${fnskuAsinMatch ? ' with' : ' without'} same FNSKU/ASIN):</div>`;
         }
 
         searchResults.forEach((result, index) => {
+            const fnskuAsinMatch = result.fnsku === result.asin;
             html += `
-                <div class="mid-result-item">
-                    <div class="mid-result-title">Match ${index + 1} (Page ${result.page})</div>
-                    <div class="mid-result-details">
-                        <strong>Merchant:</strong> ${result.merchantId}<br>
-                        <strong>MSKU:</strong> ${result.msku}<br>
-                        <strong>FNSKU/ASIN:</strong> ${result.fnsku}<br>
-                        <strong>Condition:</strong> ${result.condition}<br>
-                        <strong>Status:</strong> ${result.status}
-                    </div>
+            <div class="mid-result-item">
+                <div class="mid-result-title">Match ${index + 1} (Page ${result.page})</div>
+                <div class="mid-result-details">
+                    <strong>Merchant:</strong> ${result.merchantId}<br>
+                    <strong>MSKU:</strong> ${result.msku}<br>
+                    <strong>FNSKU:</strong> ${result.fnsku}<br>
+                    <strong>ASIN:</strong> ${result.asin} ${fnskuAsinMatch ?
+                '<span style="color: green;">(matches FNSKU)</span>' :
+            '<span style="color: orange;">(different from FNSKU)</span>'}<br>
+                    <strong>Condition:</strong> ${result.condition}<br>
+                    <strong>Status:</strong> ${result.status}
                 </div>
-            `;
+            </div>
+        `;
         });
 
         if (html) {
@@ -2174,6 +2162,7 @@ if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fn
             resultsDiv.style.display = 'block';
         }
     }
+
 
     // Helper functions
     function highlightRow(row, searchTerm) {
