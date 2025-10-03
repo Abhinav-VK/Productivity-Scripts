@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     4.2
+// @version     4.3
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker and Check Mapping with Alt+X toggle panel
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
 // @include     https://paragon-na.amazon.com/hz/case?caseId=*
@@ -9,7 +9,7 @@
 // @match       https://console.harmony.a2z.com/*
 // @match       https://fba-registration-console-na.aka.amazon.com/*
 // @match       https://moonraker-na.aka.amazon.com/serenity/open*
-// @match       https://fba-fnsku-commingling-console-na.aka.amazon.com/*
+// @match       https://fba-fnsku-commingling-console-na.aka.amazon.com/tool/fnsku-mappings-tool*
 // @require     https://ajax.googleapis.com/ajax/libs/jquery/2.1.4/jquery.min.js
 // @grant       GM_setClipboard
 // @grant       GM_addStyle
@@ -1699,7 +1699,7 @@ if (location.href.includes('fba-registration-console-na.aka.amazon.com')) {
 // 6) Check Mapping - IMPROVED UI //
 /////////////////////////////////
 
-if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fnsku-commingling-console-na.aka.amazon.com/')) {
+if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fnsku-commingling-console-na.aka.amazon.com/tool/fnsku-mappings-tool')) {
     console.log('FNSKU MID Search: Initializing floating button...');
 
     let isSearching = false;
