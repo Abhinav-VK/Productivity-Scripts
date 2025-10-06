@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     4.3
+// @version     4.4
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker and Check Mapping with Alt+X toggle panel
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
 // @include     https://paragon-na.amazon.com/hz/case?caseId=*
@@ -1116,7 +1116,7 @@ if (isFeatureEnabled('rcaiResults') && /console\.harmony\.a2z\.com/.test(locatio
     navigator.clipboard.writeText(out);
   }
 
-  function autofillFromPage(append=false) {
+function autofillFromPage(append=false) {
     console.log('Starting autofillFromPage, append:', append);
 
     const codeRx = /^[A-Z0-9]{10}$/;
@@ -1129,66 +1129,84 @@ if (isFeatureEnabled('rcaiResults') && /console\.harmony\.a2z\.com/.test(locatio
     let foundData = false;
 
     elems.forEach((el, i) => {
-      const txt = (el.textContent || '').trim();
-      if (!decRx.test(txt)) return;
+        const txt = (el.textContent || '').trim();
+        if (!decRx.test(txt)) return;
 
-      const decision = txt.toUpperCase().replace('PARTIAL_DECLINE', 'PARTIAL');
-      const codes = [];
+        const decision = txt.toUpperCase().replace('PARTIAL_DECLINE', 'PARTIAL');
+        const codes = [];
 
-      // Look for shortage quantity
-      let disc = '';
-      for (let j = i - 1; j >= Math.max(0, i - 10); j--) {
-        const t = (elems[j].textContent || '').trim();
-        if (t.toLowerCase().includes('shortage quantity')) {
-          for (let k = j + 1; k <= Math.min(elems.length - 1, j + 5); k++) {
-            const numText = (elems[k].textContent || '').trim();
-            if (/^\d+$/.test(numText)) {
-              disc = numText;
-              console.log('Found shortage quantity:', disc, 'near element', k);
-              break;
+        // Look for shortage quantity
+        let disc = '';
+        for (let j = i - 1; j >= Math.max(0, i - 10); j--) {
+            const t = (elems[j].textContent || '').trim();
+            if (t.toLowerCase().includes('shortage quantity')) {
+                for (let k = j + 1; k <= Math.min(elems.length - 1, j + 5); k++) {
+                    const numText = (elems[k].textContent || '').trim();
+                    if (/^\d+$/.test(numText)) {
+                        disc = numText;
+                        console.log('Found shortage quantity:', disc, 'near element', k);
+                        break;
+                    }
+                }
+                if (disc) break;
             }
-          }
-          if (disc) break;
+            if (j === i - 2 && !disc) {
+                const fallbackText = t.trim();
+                if (/^\d+$/.test(fallbackText)) {
+                    disc = fallbackText;
+                }
+            }
         }
-        if (j === i - 2 && !disc) {
-          const fallbackText = t.trim();
-          if (/^\d+$/.test(fallbackText)) {
-            disc = fallbackText;
-          }
+
+        // Find FNSKU codes
+        for (let j = i - 1; j >= Math.max(0, i - 15); j--) {
+            const t = (elems[j].textContent || '').trim();
+            if (codeRx.test(t)) codes.push(t);
         }
-      }
 
-      // Find FNSKU codes
-      for (let j = i - 1; j >= Math.max(0, i - 15); j--) {
-        const t = (elems[j].textContent || '').trim();
-        if (codeRx.test(t)) codes.push(t);
-      }
+        // Get RC Summary - Modified to handle both single and multiple RCs
+        const next = elems[i + 1]?.textContent?.trim() || '';
+        const rcParts = next.split(',');
 
-      // Get RC Summary
-      const next = elems[i + 1]?.textContent?.trim() || '';
-      const rcSummary = next.split(',').map(it =>
-        it.replace(/\/\d+/g, '').trim() || it.split(' ')[0]
-      ).join(', ');
+        // Different handling for single vs multiple RCs
+        const rcSummary = rcParts.length > 1 ?
+              // Multiple RCs - trim each one
+              rcParts.map(it => {
+                  const trimmed = it.trim();
+                  // Special handling for Item Label Defect
+                  if (trimmed.toLowerCase().includes('item label defect')) {
+                      return 'Label';
+                  }
+                  // Get first word of each RC item
+                  const firstWord = trimmed.split(/\s+/)[0];
+                  return firstWord || trimmed; // Fallback to full item if no words
+              }).join(', ')
+        :
+        // Single RC - return the full text
+        rcParts[0].trim();
 
-      // Determine fault
-      let fault = 'NONE';
-      for (let k = i + 1; k < Math.min(elems.length, i + 20); k++) {
-        const s = (elems[k].textContent || '').toLowerCase();
-        if (s.includes('summary of the findings')) {
-          const hasS = s.includes('no shortage was caused by seller fault');
-          const hasA = s.includes('no shortage was caused by amazon fault');
-          if (!hasS && hasA) fault = 'Seller';
-          else if (!hasA && hasS) fault = 'Amazon';
-          else if (!hasS && !hasA) fault = 'BOTH';
-          break;
+
+
+
+        // Determine fault
+        let fault = 'NONE';
+        for (let k = i + 1; k < Math.min(elems.length, i + 20); k++) {
+            const s = (elems[k].textContent || '').toLowerCase();
+            if (s.includes('summary of the findings')) {
+                const hasS = s.includes('no shortage was caused by seller fault');
+                const hasA = s.includes('no shortage was caused by amazon fault');
+                if (!hasS && hasA) fault = 'Seller';
+                else if (!hasA && hasS) fault = 'Amazon';
+                else if (!hasS && !hasA) fault = 'BOTH';
+                break;
+            }
         }
-      }
 
-      if (codes.length >= 2) {
-        coll.push([codes[1], decision, rcSummary, disc, fault, '', '', '', '', '']);
-        foundData = true;
-        console.log('Added row:', codes[1], 'with shortage:', disc);
-      }
+        if (codes.length >= 2) {
+            coll.push([codes[1], decision, rcSummary, disc, fault, '', '', '', '', '']);
+            foundData = true;
+            console.log('Added row:', codes[1], 'with RC Summary:', rcSummary);
+        }
     });
 
     // Strategy 2: Table-based extraction as fallback
