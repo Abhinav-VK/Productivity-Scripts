@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     4.5
+// @version     4.6
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker and Check Mapping with Alt+X toggle panel
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
 // @include     https://paragon-na.amazon.com/hz/case?caseId=*
@@ -2042,27 +2042,32 @@ while (pageCount < maxPages) {
     const pageResults = searchCurrentPage(searchMIDLower, pageCount);
 
     if (pageResults.length > 0) {
-    // Found matches on current page - check for FNSKU/ASIN match
-        const matchingResult = pageResults.find(result => result.fnsku === result.asin);
+        // Found matches on current page - check for FNSKU/ASIN match
+        const matchingResults = pageResults.filter(result => result.fnsku === result.asin);
 
-        if (matchingResult) {
-            // If there's a matching FNSKU/ASIN on this page, only highlight that one
-            searchResults = [matchingResult];
-            highlightRow(matchingResult.element, matchingResult.mid);
-            scrollToElement(matchingResult.element);
-            addResultLine(`Page ${pageCount}: Found result with matching FNSKU/ASIN!`);
+        if (matchingResults.length > 0) {
+            // If there are any matching FNSKU/ASIN on this page, highlight those
+            searchResults = matchingResults;
+            matchingResults.forEach(result => {
+                highlightRow(result.element, result.mid);
+            });
+            scrollToElement(matchingResults[0].element);
+            addResultLine(`Page ${pageCount}: Found ${matchingResults.length} result(s) with matching FNSKU/ASIN!`);
         } else {
-            // If no FNSKU/ASIN match, use the first result on the page
-            searchResults = [pageResults[0]];
-            highlightRow(pageResults[0].element, pageResults[0].mid);
+            // If no FNSKU/ASIN matches, highlight all results on the page
+            searchResults = pageResults;
+            pageResults.forEach(result => {
+                highlightRow(result.element, result.mid);
+            });
             scrollToElement(pageResults[0].element);
-            addResultLine(`Page ${pageCount}: Found result (no FNSKU/ASIN match)`);
+            addResultLine(`Page ${pageCount}: Found ${pageResults.length} result(s)`);
         }
 
         displayResults();
         found = true;
         break;
     }
+
 
 
     else {
