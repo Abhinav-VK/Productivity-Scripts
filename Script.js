@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     4.4
+// @version     4.5
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker and Check Mapping with Alt+X toggle panel
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
 // @include     https://paragon-na.amazon.com/hz/case?caseId=*
@@ -2034,34 +2034,47 @@ if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fn
             showStatus('Searching pages...', 'info');
 
 // Inside startMidSearch function, replace the while loop logic with:
-while (pageCount < maxPages && !found) {
+while (pageCount < maxPages) {
     pageCount++;
     button.textContent = `Page ${pageCount}`;
 
-    // First search current page for matches
+    // Search current page for matches
     const pageResults = searchCurrentPage(searchMIDLower, pageCount);
 
     if (pageResults.length > 0) {
-        // Found a match on current page
-        searchResults.push(pageResults[0]);
-        highlightRow(pageResults[0].element, pageResults[0].mid);
+    // Found matches on current page - check for FNSKU/ASIN match
+        const matchingResult = pageResults.find(result => result.fnsku === result.asin);
+
+        if (matchingResult) {
+            // If there's a matching FNSKU/ASIN on this page, only highlight that one
+            searchResults = [matchingResult];
+            highlightRow(matchingResult.element, matchingResult.mid);
+            scrollToElement(matchingResult.element);
+            addResultLine(`Page ${pageCount}: Found result with matching FNSKU/ASIN!`);
+        } else {
+            // If no FNSKU/ASIN match, use the first result on the page
+            searchResults = [pageResults[0]];
+            highlightRow(pageResults[0].element, pageResults[0].mid);
+            scrollToElement(pageResults[0].element);
+            addResultLine(`Page ${pageCount}: Found result (no FNSKU/ASIN match)`);
+        }
+
         displayResults();
-        addResultLine(`Page ${pageCount}: Found match! Stopping search.`);
-        found = true; // Stop searching
+        found = true;
         break;
-    } else {
-        addResultLine(`Page ${pageCount}: No matches`);
     }
 
-    // Only look for next button if no match found
-    if (!found) {
+
+    else {
+        addResultLine(`Page ${pageCount}: No matches`);
+
+        // Only proceed to next page if no results found
         const nextBtn = findNextButton();
         if (!nextBtn) {
             console.log('FNSKU MID Search: No next button found - reached end of results');
             break;
         }
 
-        // Click next and wait
         nextBtn.click();
         const pageLoadSuccess = await waitForPageLoad(5000);
         if (!pageLoadSuccess) {
@@ -2073,6 +2086,8 @@ while (pageCount < maxPages && !found) {
         await new Promise(resolve => setTimeout(resolve, 800));
     }
 }
+
+
 
 
             // Final results
@@ -2183,6 +2198,21 @@ while (pageCount < maxPages && !found) {
 
 
     // Helper functions
+    function scrollToElement(element) {
+        if (element) {
+            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+            // Add a temporary highlight animation
+            element.style.transition = 'background-color 0.5s';
+            element.style.backgroundColor = '#ffff00';
+            setTimeout(() => {
+                element.style.backgroundColor = '';
+                setTimeout(() => {
+                    element.style.backgroundColor = '#ffff00';
+                }, 500);
+            }, 500);
+        }
+    }
     function highlightRow(row, searchTerm) {
         if (!row) return;
 
