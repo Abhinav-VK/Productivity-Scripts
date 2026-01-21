@@ -1,8 +1,9 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     4.6
-// @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker and Check Mapping with Alt+X toggle panel
+// @version     6.0
+// @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
+// @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
 // @include     https://paragon-na.amazon.com/hz/case?caseId=*
 // @include     https://paragon-na.amazon.com/ilac/view-ilac-report?*
@@ -15,10 +16,10 @@
 // @grant       GM_addStyle
 // @grant       GM_setValue
 // @grant       GM_getValue
+// @grant       GM_xmlhttpRequest
+// @grant       unsafeWindow
 // @updateURL   https://raw.githubusercontent.com/Abhinav-VK/Productivity-Scripts/refs/heads/main/Script.js
 // @downloadURL https://raw.githubusercontent.com/Abhinav-VK/Productivity-Scripts/refs/heads/main/Script.js
-
-
 // ==/UserScript==
 
 (function() {
@@ -28,59 +29,59 @@
   // Feature Toggle System   //
   /////////////////////////////
 
-    const FEATURES = {
-        hygieneChecks: { name: "Hygiene Checks", default: true },
-        rcaiExpand: { name: "RCAI Expand Findings", default: true },
-        rcaiResults: { name: "RCAI Results Popup", default: true },
-        serenityExtractor: { name: "Serenity ID Extractor", default: true },
-        santosChecker: { name: "SANTOS Checker", default: true },
-        filterAllMID: { name: "Check Mapping", default: true },
-        openRCAI: { name: "Open RCAI", default: true }
-    };
+  const FEATURES = {
+    hygieneChecks: { name: "Hygiene Checks", default: true },
+    rcaiExpand: { name: "RCAI Expand Findings", default: true },
+    rcaiResults: { name: "RCAI Results Popup", default: true },
+    serenityExtractor: { name: "Serenity ID Extractor", default: true },
+    santosChecker: { name: "SANTOS Checker", default: true },
+    filterAllMID: { name: "Check Mapping", default: true },
+    openRCAI: { name: "Open RCAI", default: true },
+    ilacAutoAttach: { name: "ILAC Auto Attach", default: true }
+  };
 
-  // Standard button style for all floating buttons
-const STANDARD_BUTTON_STYLE = `
-  position: fixed;
-  padding: 12px 20px;
-  font-size: 14px;
-  font-weight: 600;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: #000000;
-  color: #ffffff;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-  transition: all 0.2s ease;
-  z-index: 9999;
-  min-width: 140px;
-  text-align: center;
-  user-select: none;
-`;
-  // Add hover and active states for buttons
+  const STANDARD_BUTTON_STYLE = `
+    position: fixed;
+    padding: 12px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #000000;
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    transition: all 0.2s ease;
+    z-index: 9999;
+    min-width: 140px;
+    text-align: center;
+    user-select: none;
+  `;
+
   GM_addStyle(`
     .standard-floating-btn {
       ${STANDARD_BUTTON_STYLE}
     }
 
     .standard-floating-btn:hover {
-  background: #333333 !important;
-  transform: translateY(-1px) !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
-}
+      background: #333333 !important;
+      transform: translateY(-1px) !important;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+    }
 
-.standard-floating-btn:active {
-  background: #000000 !important;
-  transform: translateY(0) !important;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2) !important;
-}
+    .standard-floating-btn:active {
+      background: #000000 !important;
+      transform: translateY(0) !important;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2) !important;
+    }
 
-.standard-floating-btn:disabled {
-  background: #666666 !important;
-  cursor: not-allowed !important;
-  transform: none !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
-}
+    .standard-floating-btn:disabled {
+      background: #666666 !important;
+      cursor: not-allowed !important;
+      transform: none !important;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+    }
   `);
 
   function isFeatureEnabled(feature) {
@@ -92,7 +93,6 @@ const STANDARD_BUTTON_STYLE = `
   }
 
   function createTogglePanel() {
-    // Remove existing panel if it exists
     const existingPanel = document.getElementById('feature-toggle-panel');
     if (existingPanel) {
       existingPanel.remove();
@@ -122,31 +122,26 @@ const STANDARD_BUTTON_STYLE = `
     document.body.appendChild(panel);
     setupToggleListeners();
 
-    // Position panel in center
     panel.style.left = '50%';
     panel.style.top = '50%';
     panel.style.transform = 'translate(-50%, -50%)';
   }
 
   function setupToggleListeners() {
-    // Close button
     document.getElementById('close-toggle-panel').onclick = () => {
       document.getElementById('feature-toggle-panel').remove();
     };
 
-    // Feature toggles
     Object.keys(FEATURES).forEach(feature => {
       const checkbox = document.getElementById(`toggle-${feature}`);
       checkbox.onchange = () => {
         setFeatureEnabled(feature, checkbox.checked);
-        // Optionally reload page to apply changes
         if (confirm('Feature updated! Reload page to apply changes?')) {
           location.reload();
         }
       };
     });
 
-    // Close on Escape key
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         const panel = document.getElementById('feature-toggle-panel');
@@ -155,105 +150,104 @@ const STANDARD_BUTTON_STYLE = `
     });
   }
 
-  // Updated CSS for toggle panel
   GM_addStyle(`
-      #feature-toggle-panel {
-          position: fixed;
-          background: white;
-          border-radius: 12px;
-          box-shadow: 0 8px 32px rgba(0,0,0,0.12);
-          z-index: 10000;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-          min-width: 320px;
-          max-width: 420px;
-          overflow: hidden;
-          border: 1px solid #e1e5e9;
-      }
+    #feature-toggle-panel {
+      position: fixed;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+      z-index: 10000;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      min-width: 320px;
+      max-width: 420px;
+      overflow: hidden;
+      border: 1px solid #e1e5e9;
+    }
 
-      .toggle-header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    padding: 12px 16px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border-bottom: 1px solid rgba(255,255,255,0.1);
-}
+    .toggle-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
 
-      .toggle-title {
-          color: white;
-          font-size: 18px;
-          font-weight: 700;
-          margin: 0;
-      }
+    .toggle-title {
+      color: white;
+      font-size: 18px;
+      font-weight: 700;
+      margin: 0;
+    }
 
-      .close-btn {
-    background: rgba(255,255,255,0.2);
-    border: none;
-    color: white;
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    font-size: 18px;
-    line-height: 1;
-    transition: background 0.2s ease;
-    text-align: center;
-}
-      .close-btn:hover {
-          background: rgba(255,255,255,0.3);
-      }
+    .close-btn {
+      background: rgba(255,255,255,0.2);
+      border: none;
+      color: white;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      transition: background 0.2s ease;
+      text-align: center;
+    }
 
-      .toggle-content {
-    padding: 16px;
-    background: #fafbfc;
-}
+    .close-btn:hover {
+      background: rgba(255,255,255,0.3);
+    }
 
-      .toggle-item {
-    margin-bottom: 10px;
-    display: flex;
-    align-items: center;
-}
+    .toggle-content {
+      padding: 16px;
+      background: #fafbfc;
+    }
 
-.toggle-item:last-child {
-    margin-bottom: 0;
-}
+    .toggle-item {
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+    }
 
-      .toggle-checkbox {
-          display: flex;
-          align-items: center;
-          width: 100%;
-          cursor: pointer;
-          font-size: 15px;
-          user-select: none;
-          padding: 12px 16px;
-          border-radius: 8px;
-          background: white;
-          border: 1px solid #e1e5e9;
-          transition: all 0.2s ease;
-      }
+    .toggle-item:last-child {
+      margin-bottom: 0;
+    }
 
-      .toggle-checkbox:hover {
-          border-color: #667eea;
-          box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
-      }
+    .toggle-checkbox {
+      display: flex;
+      align-items: center;
+      width: 100%;
+      cursor: pointer;
+      font-size: 15px;
+      user-select: none;
+      padding: 12px 16px;
+      border-radius: 8px;
+      background: white;
+      border: 1px solid #e1e5e9;
+      transition: all 0.2s ease;
+    }
 
-      .toggle-checkbox input[type="checkbox"] {
-          margin-right: 12px;
-          width: 18px;
-          height: 18px;
-          accent-color: #667eea;
-      }
+    .toggle-checkbox:hover {
+      border-color: #667eea;
+      box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+    }
 
-      .feature-name {
-          font-weight: 500;
-          color: #2d3748;
-      }
+    .toggle-checkbox input[type="checkbox"] {
+      margin-right: 12px;
+      width: 18px;
+      height: 18px;
+      accent-color: #667eea;
+    }
+
+    .feature-name {
+      font-weight: 500;
+      color: #2d3748;
+    }
   `);
 
-  // Global keyboard listener for Alt+X
   document.addEventListener('keydown', (e) => {
     if (e.altKey && e.key.toLowerCase() === 'x') {
       e.preventDefault();
@@ -309,7 +303,6 @@ const STANDARD_BUTTON_STYLE = `
     }
     setTimeout(initializeButtons, 2000);
 
-    // Peek shortcut: V+S
     let keysPressed = new Set();
     document.addEventListener('keydown', e => {
       keysPressed.add(e.key.toLowerCase());
@@ -320,7 +313,6 @@ const STANDARD_BUTTON_STYLE = `
     });
     document.addEventListener('keyup', e => keysPressed.delete(e.key.toLowerCase()));
 
-    // Alt+Y opens Hygiene form; Escape closes forms
     document.addEventListener('keydown', event => {
       const hf = document.getElementById('HygieneCheckForm');
       const mf = document.getElementById('MissingUnitsForm');
@@ -336,7 +328,6 @@ const STANDARD_BUTTON_STYLE = `
       }
     });
 
-    // Inject Easy Access Links (removed the label)
     const sidebar = document.querySelector('#page-sidebar');
     if (sidebar) {
       const container = document.createElement('div');
@@ -383,7 +374,6 @@ const STANDARD_BUTTON_STYLE = `
       sidebar.insertBefore(container, sidebar.firstChild);
     }
 
-    // Hygiene Check Form
     const HygieneCheckForm = document.createElement('div');
     HygieneCheckForm.id = 'HygieneCheckForm';
     Object.assign(HygieneCheckForm.style, {
@@ -435,7 +425,6 @@ const STANDARD_BUTTON_STYLE = `
     </form>`;
     HygieneCheckForm.innerHTML = formHTML;
 
-    // Submit handler
     document.getElementById('submitChecklist').addEventListener('click', () => {
       let output = 'ILAC Investigation Checklist:\n';
       for (let i = 1; i <= questions.length; i++) {
@@ -467,7 +456,6 @@ const STANDARD_BUTTON_STYLE = `
       });
     });
 
-    // Missing Units Credit Form
     const MissingUnitsForm = document.createElement('div');
     MissingUnitsForm.id = 'MissingUnitsForm';
     Object.assign(MissingUnitsForm.style, {
@@ -511,829 +499,721 @@ const STANDARD_BUTTON_STYLE = `
   // 2) RCAI Expand Findings     //
   /////////////////////////////////
 
-    // 2. RCAI Expand Findings - Updated Position and Color
-    if (isFeatureEnabled('rcaiExpand') && /console\.harmony\.a2z\.com/.test(location.href)) {
+  if (isFeatureEnabled('rcaiExpand') && /console\.harmony\.a2z\.com/.test(location.href)) {
 
-        const RCAITEXT = 'mfi root cause analysis and investigation';
-        const DETAILSTEXT = 'details of the findings';
-        const SHOWDETAILSTEXT = 'show details';
+    const RCAITEXT = 'mfi root cause analysis and investigation';
+    const DETAILSTEXT = 'details of the findings';
+    const SHOWDETAILSTEXT = 'show details';
 
-        function norm(txt) {
-            return txt.trim().toLowerCase().replace(/\s+/g, ' ');
-        }
+    function norm(txt) {
+      return txt.trim().toLowerCase().replace(/\s+/g, ' ');
+    }
 
-        function hasRCAI() {
-            return norm(document.body.innerText).includes(RCAITEXT);
-        }
+    function hasRCAI() {
+      return norm(document.body.innerText).includes(RCAITEXT);
+    }
 
-        function hasDetailsFindings() {
-            return norm(document.body.innerText).includes(DETAILSTEXT);
-        }
+    function hasDetailsFindings() {
+      return norm(document.body.innerText).includes(DETAILSTEXT);
+    }
 
-        function hasShow() {
-            return Array.from(document.querySelectorAll('button,a')).some(el =>
-                                                                          el.offsetParent && norm(el.textContent).includes(SHOWDETAILSTEXT)
-                                                                         );
-        }
+    function hasShow() {
+      return Array.from(document.querySelectorAll('button,a')).some(el =>
+        el.offsetParent && norm(el.textContent).includes(SHOWDETAILSTEXT)
+      );
+    }
 
-        function findDetailsOfFindingsButtons() {
-            const buttons = [];
-            const allElements = Array.from(document.querySelectorAll('*'));
-            allElements.forEach(el => {
-                if (norm(el.textContent).includes(DETAILSTEXT)) {
-                    // Look for Show Details button near this "Details of the Findings" text
-                    const parent = el.closest('div') || el.parentElement;
-                    if (parent) {
-                        const showDetailsBtn = parent.querySelector('button, a');
-                        if (showDetailsBtn && norm(showDetailsBtn.textContent).includes(SHOWDETAILSTEXT)) {
-                            buttons.push(showDetailsBtn);
-                        }
-                    }
-                }
-            });
-            return buttons;
-        }
-
-        function addExpandBtn() {
-            if (document.getElementById('rcai-expand-btn')) return;
-
-            const btn = document.createElement('button');
-            btn.id = 'rcai-expand-btn';
-            btn.textContent = 'Expand Findings';
-
-            // Updated styling - positioned above RCAI Results and with Investigate button color
-            btn.className = 'standard-floating-btn';
-            btn.style.bottom = '80px';
-            btn.style.left = '20px';
-
-            btn.onclick = function() {
-                btn.textContent = 'Expanding Findings...';
-
-                const detailsButtons = findDetailsOfFindingsButtons();
-                if (detailsButtons.length === 0) {
-                    btn.textContent = 'No Details Found';
-                    btn.style.color = 'orange';
-                    setTimeout(() => {
-                        btn.textContent = 'Expand Findings';
-                        btn.style.color = '#fff';
-                    }, 2000);
-                    return;
-                }
-
-                detailsButtons.forEach((el, i) => {
-                    setTimeout(() => el.click(), i * 300);
-                });
-
-                setTimeout(() => {
-                    btn.textContent = 'Completed';
-                    btn.style.color = 'limegreen';
-                }, detailsButtons.length * 300 + 500);
-
-                setTimeout(() => {
-                    btn.textContent = 'Expand Findings';
-                    btn.style.color = '#fff';
-                }, detailsButtons.length * 300 + 2500);
-            };
-
-            document.body.appendChild(btn);
-        }
-
-        const obs = new MutationObserver(() => {
-            if (hasRCAI() && hasDetailsFindings() && hasShow()) {
-                addExpandBtn();
+    function findDetailsOfFindingsButtons() {
+      const buttons = [];
+      const allElements = Array.from(document.querySelectorAll('*'));
+      allElements.forEach(el => {
+        if (norm(el.textContent).includes(DETAILSTEXT)) {
+          const parent = el.closest('div') || el.parentElement;
+          if (parent) {
+            const showDetailsBtn = parent.querySelector('button, a');
+            if (showDetailsBtn && norm(showDetailsBtn.textContent).includes(SHOWDETAILSTEXT)) {
+              buttons.push(showDetailsBtn);
             }
+          }
+        }
+      });
+      return buttons;
+    }
+
+    function addExpandBtn() {
+      if (document.getElementById('rcai-expand-btn')) return;
+
+      const btn = document.createElement('button');
+      btn.id = 'rcai-expand-btn';
+      btn.textContent = 'Expand Findings';
+      btn.className = 'standard-floating-btn';
+      btn.style.bottom = '80px';
+      btn.style.left = '20px';
+
+      btn.onclick = function() {
+        btn.textContent = 'Expanding Findings...';
+
+        const detailsButtons = findDetailsOfFindingsButtons();
+        if (detailsButtons.length === 0) {
+          btn.textContent = 'No Details Found';
+          btn.style.color = 'orange';
+          setTimeout(() => {
+            btn.textContent = 'Expand Findings';
+            btn.style.color = '#fff';
+          }, 2000);
+          return;
+        }
+
+        detailsButtons.forEach((el, i) => {
+          setTimeout(() => el.click(), i * 300);
         });
 
-        obs.observe(document.body, { childList: true, subtree: true });
+        setTimeout(() => {
+          btn.textContent = 'Completed';
+          btn.style.color = 'limegreen';
+        }, detailsButtons.length * 300 + 500);
 
         setTimeout(() => {
-            if (hasRCAI() && hasDetailsFindings() && hasShow()) {
-                addExpandBtn();
-            }
-        }, 3000);
+          btn.textContent = 'Expand Findings';
+          btn.style.color = '#fff';
+        }, detailsButtons.length * 300 + 2500);
+      };
+
+      document.body.appendChild(btn);
     }
 
-
-
-/////////////////////////////////
-// 3) RCAI Results Popup - COMPLETE FIXED VERSION //
-/////////////////////////////////
-
-if (isFeatureEnabled('rcaiResults') && /console\.harmony\.a2z\.com/.test(location.href)) {
-
-  let popupVisible = false, removedStack = [], restoring = false;
-
-  const RCAI_TEXT = 'mfi root cause analysis and investigation';
-  const SHOW_DETAILS_TEXT = 'show details';
-  function norm(txt) { return txt.trim().toLowerCase().replace(/\s+/g,' '); }
-  function hasRCAI() { return norm(document.body.innerText).includes(RCAI_TEXT); }
-  function hasShow() {
-    return Array.from(document.querySelectorAll('button,a')).some(el =>
-      el.offsetParent && norm(el.textContent).includes(SHOW_DETAILS_TEXT)
-    );
-  }
-
-  function addRcaiResultsBtn() {
-    if (!(hasRCAI() && hasShow())) return;
-    if (document.getElementById('rcai-results-btn')) return;
-    const btn = document.createElement('button');
-    btn.id = 'rcai-results-btn';
-    btn.className = 'standard-floating-btn';
-    btn.textContent = 'RCAI Results';
-    btn.style.bottom = '20px';
-    btn.style.left = '20px';
-    btn.onclick = createPopup;
-    document.body.appendChild(btn);
-  }
-
-  const buttonObs = new MutationObserver(() => {
-    if (hasRCAI() && hasShow()) addRcaiResultsBtn();
-  });
-  buttonObs.observe(document.body, { childList: true, subtree: true });
-  setTimeout(() => { if (hasRCAI() && hasShow()) addRcaiResultsBtn(); }, 3000);
-
-  GM_addStyle(`
-    #rcai-popup {
-      position: fixed !important;
-      top: 10px !important;
-      left: 50% !important;
-      transform: translateX(-50%) !important;
-      width: 90vw !important;
-      max-width: 1400px !important;
-      min-width: 400px !important;
-      height: 350px !important;
-      max-height: 90vh !important;
-      min-height: 200px !important;
-      background: white !important;
-      border: 2px solid #8b5cf6 !important;
-      border-radius: 8px !important;
-      box-shadow: 0 8px 32px rgba(139, 92, 246, 0.2) !important;
-      z-index: 10001 !important;
-      overflow: hidden !important;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-      resize: both !important;
-      display: flex !important;
-      flex-direction: column !important;
-    }
-
-    #rcai-popup.minimized {
-      height: 45px !important;
-      min-height: 45px !important;
-      max-height: 45px !important;
-      resize: none !important;
-      overflow: hidden !important;
-    }
-
-    #rcai-popup::after {
-      content: '' !important;
-      position: absolute !important;
-      bottom: 0 !important;
-      right: 0 !important;
-      width: 20px !important;
-      height: 20px !important;
-      background: linear-gradient(-45deg, transparent 0%, transparent 30%, #8b5cf6 30%, #8b5cf6 35%, transparent 35%, transparent 65%, #8b5cf6 65%, #8b5cf6 70%, transparent 70%) !important;
-      cursor: se-resize !important;
-      z-index: 10002 !important;
-    }
-
-    #rcai-popup.minimized::after {
-      display: none !important;
-    }
-
-    .rcai-header {
-      background: linear-gradient(135deg, #3b82f6, #8b5cf6) !important;
-      color: white !important;
-      padding: 10px 12px !important;
-      display: flex !important;
-      justify-content: space-between !important;
-      align-items: center !important;
-      font-weight: bold !important;
-      font-size: 15px !important;
-      user-select: none !important;
-      height: 45px !important;
-      box-sizing: border-box !important;
-      flex-shrink: 0 !important;
-    }
-
-    .rcai-header-left {
-      display: flex !important;
-      align-items: center !important;
-      gap: 12px !important;
-    }
-
-    .row-counter-header {
-      background: rgba(255,255,255,0.2) !important;
-      padding: 4px 8px !important;
-      border-radius: 4px !important;
-      font-size: 11px !important;
-      color: white !important;
-      border: 1px solid rgba(255,255,255,0.3) !important;
-    }
-
-    .rcai-controls {
-      display: flex !important;
-      gap: 6px !important;
-    }
-
-    .rcai-controls button {
-      padding: 5px 9px !important;
-      font-size: 12px !important;
-      background: rgba(255,255,255,0.2) !important;
-      color: white !important;
-      border: 1px solid rgba(255,255,255,0.3) !important;
-      border-radius: 4px !important;
-      cursor: pointer !important;
-      font-weight: 500 !important;
-    }
-
-    .rcai-controls button:hover {
-      background: rgba(255,255,255,0.3) !important;
-    }
-
-    .rcai-controls button:disabled {
-      background: rgba(255,255,255,0.1) !important;
-      cursor: not-allowed !important;
-      opacity: 0.6 !important;
-    }
-
-    #rcai-scroll {
-      flex: 1 !important;
-      overflow: auto !important;
-      padding: 8px !important;
-      min-height: 0 !important;
-      background: white !important;
-      position: relative !important;
-    }
-
-    #rcai-popup.minimized #rcai-scroll {
-      display: none !important;
-    }
-
-    #rcai-table {
-      width: 100% !important;
-      border-collapse: collapse !important;
-      font-size: 12px !important;
-      table-layout: fixed !important;
-    }
-
-    #rcai-table thead {
-      position: sticky !important;
-      top: 0 !important;
-      z-index: 10 !important;
-      background: white !important;
-    }
-
-    #rcai-table td, #rcai-table th {
-      padding: 3px 5px !important;
-      border: 1px solid #e5e7eb !important;
-      background: white !important;
-      overflow: hidden !important;
-      text-overflow: ellipsis !important;
-    }
-
-    #rcai-table td:nth-child(1), #rcai-table th:nth-child(1) {
-      width: 30px !important;
-      min-width: 30px !important;
-      max-width: 30px !important;
-    }
-
-    #rcai-table td:nth-child(2), #rcai-table th:nth-child(2) {
-      width: 90px !important;
-      min-width: 90px !important;
-      max-width: 90px !important;
-    }
-
-    #rcai-table td:nth-child(3), #rcai-table th:nth-child(3) {
-      width: 70px !important;
-      min-width: 70px !important;
-      max-width: 70px !important;
-    }
-
-    #rcai-table td:nth-child(4), #rcai-table th:nth-child(4) {
-      width: 150px !important;
-      min-width: 150px !important;
-    }
-
-    #rcai-table td:nth-child(5), #rcai-table th:nth-child(5) {
-      width: 45px !important;
-      min-width: 45px !important;
-      max-width: 45px !important;
-    }
-
-    #rcai-table td:nth-child(6), #rcai-table th:nth-child(6) {
-      width: 60px !important;
-      min-width: 60px !important;
-      max-width: 60px !important;
-    }
-
-    #rcai-table td:nth-child(7), #rcai-table th:nth-child(7) {
-      width: 45px !important;
-      min-width: 55px !important;
-      max-width: 55px !important;
-    }
-
-    #rcai-table td:nth-child(8), #rcai-table th:nth-child(8) {
-      width: 45px !important;
-      min-width: 45px !important;
-      max-width: 45px !important;
-    }
-
-    #rcai-table td:nth-child(9), #rcai-table th:nth-child(9) {
-      width: 45px !important;
-      min-width: 45px !important;
-      max-width: 45px !important;
-    }
-
-    #rcai-table td:nth-child(10), #rcai-table th:nth-child(10) {
-      width: 200px !important;
-      min-width: 200px !important;
-    }
-
-    #rcai-table td:nth-child(11), #rcai-table th:nth-child(11) {
-      width: auto !important;
-      min-width: 300px !important;
-    }
-
-    #rcai-table td:last-child, #rcai-table th:last-child {
-      width: 25px !important;
-      min-width: 25px !important;
-      max-width: 25px !important;
-      text-align: center !important;
-    }
-
-    #rcai-table input {
-      width: 100% !important;
-      padding: 3px 5px !important;
-      border: none !important;
-      font-size: 11px !important;
-      outline: none !important;
-      background: transparent !important;
-      box-sizing: border-box !important;
-    }
-
-    #rcai-table input:focus {
-      background: #f3f4f6 !important;
-      border: 1px solid #8b5cf6 !important;
-      border-radius: 2px !important;
-    }
-
-    #rcai-table thead tr {
-      background: linear-gradient(135deg, #f8fafc, #f1f5f9) !important;
-    }
-
-    #rcai-table thead input {
-      font-weight: bold !important;
-      color: #475569 !important;
-      background: transparent !important;
-    }
-
-    .remove-btn {
-      padding: 1px 3px !important;
-      font-size: 10px !important;
-      background: #ef4444 !important;
-      color: white !important;
-      border: none !important;
-      border-radius: 2px !important;
-      cursor: pointer !important;
-      width: 16px !important;
-      height: 16px !important;
-      display: flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      line-height: 1 !important;
-    }
-
-    .remove-btn:hover {
-      background: #dc2626 !important;
-    }
-  `);
-
-  function storageKey() { return 'rcai:' + location.href; }
-
-  function savePopupState() {
-    const rows = Array.from(document.querySelectorAll('#rcai-body tr'));
-    const data = rows.map(r =>
-      Array.from(r.querySelectorAll('td')).slice(1,11).map(td => td.querySelector('input')?.value||'')
-    );
-    localStorage.setItem(storageKey(), JSON.stringify(data));
-  }
-
-  function restorePopupState() {
-    const s = localStorage.getItem(storageKey());
-    if (!s) return false;
-    try {
-      const arr = JSON.parse(s);
-      if (!Array.isArray(arr) || !arr.length) return false;
-      arr.forEach(r => addRow(r));
-      updateRowNumbers();
-      updateRowCounter();
-      return true;
-    } catch { return false; }
-  }
-
-  function updateRowNumbers() {
-    let c = 0;
-    document.querySelectorAll('#rcai-body tr').forEach(r => {
-      r.querySelector('td:first-child input').value = ++c;
+    const obs = new MutationObserver(() => {
+      if (hasRCAI() && hasDetailsFindings() && hasShow()) {
+        addExpandBtn();
+      }
     });
-    updateRowCounter();
+
+    obs.observe(document.body, { childList: true, subtree: true });
+
+    setTimeout(() => {
+      if (hasRCAI() && hasDetailsFindings() && hasShow()) {
+        addExpandBtn();
+      }
+    }, 3000);
   }
 
-  function updateRowCounter() {
-    const counter = document.querySelector('.row-counter-header');
-    if (counter) {
+
+
+    /////////////////////////////////
+  // 3) RCAI Results Popup       //
+  /////////////////////////////////
+
+  if (isFeatureEnabled('rcaiResults') && /console\.harmony\.a2z\.com/.test(location.href)) {
+
+    let popupVisible = false, removedStack = [], restoring = false;
+
+    const RCAI_TEXT = 'mfi root cause analysis and investigation';
+    const SHOW_DETAILS_TEXT = 'show details';
+    function norm(txt) { return txt.trim().toLowerCase().replace(/\s+/g,' '); }
+    function hasRCAI() { return norm(document.body.innerText).includes(RCAI_TEXT); }
+    function hasShow() {
+      return Array.from(document.querySelectorAll('button,a')).some(el =>
+        el.offsetParent && norm(el.textContent).includes(SHOW_DETAILS_TEXT)
+      );
+    }
+
+    function addRcaiResultsBtn() {
+      if (!(hasRCAI() && hasShow())) return;
+      if (document.getElementById('rcai-results-btn')) return;
+      const btn = document.createElement('button');
+      btn.id = 'rcai-results-btn';
+      btn.className = 'standard-floating-btn';
+      btn.textContent = 'RCAI Results';
+      btn.style.bottom = '20px';
+      btn.style.left = '20px';
+      btn.onclick = createPopup;
+      document.body.appendChild(btn);
+    }
+
+    const buttonObs = new MutationObserver(() => {
+      if (hasRCAI() && hasShow()) addRcaiResultsBtn();
+    });
+    buttonObs.observe(document.body, { childList: true, subtree: true });
+    setTimeout(() => { if (hasRCAI() && hasShow()) addRcaiResultsBtn(); }, 3000);
+
+    GM_addStyle(`
+      #rcai-popup {
+        position: fixed !important;
+        top: 10px !important;
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        width: 90vw !important;
+        max-width: 1400px !important;
+        min-width: 400px !important;
+        background: white !important;
+        border: 2px solid #8b5cf6 !important;
+        border-radius: 8px !important;
+        box-shadow: 0 8px 32px rgba(139, 92, 246, 0.2) !important;
+        z-index: 10001 !important;
+        overflow: hidden !important;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+      }
+
+      #rcai-popup.minimized {
+        height: 45px !important;
+        overflow: hidden !important;
+      }
+
+      .rcai-header {
+        background: linear-gradient(135deg, #3b82f6, #8b5cf6) !important;
+        color: white !important;
+        padding: 10px 12px !important;
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        font-weight: bold !important;
+        font-size: 15px !important;
+        user-select: none !important;
+        height: 45px !important;
+        box-sizing: border-box !important;
+      }
+
+      .rcai-header-left { display: flex !important; align-items: center !important; gap: 12px !important; }
+
+      .row-counter-header {
+        background: rgba(255,255,255,0.2) !important;
+        padding: 4px 8px !important;
+        border-radius: 4px !important;
+        font-size: 11px !important;
+        color: white !important;
+        border: 1px solid rgba(255,255,255,0.3) !important;
+      }
+
+      .rcai-controls { display: flex !important; gap: 6px !important; }
+
+      .rcai-controls button {
+        padding: 5px 9px !important;
+        font-size: 12px !important;
+        background: rgba(255,255,255,0.2) !important;
+        color: white !important;
+        border: 1px solid rgba(255,255,255,0.3) !important;
+        border-radius: 4px !important;
+        cursor: pointer !important;
+        font-weight: 500 !important;
+      }
+
+      .rcai-controls button:hover { background: rgba(255,255,255,0.3) !important; }
+      .rcai-controls button:disabled { background: rgba(255,255,255,0.1) !important; cursor: not-allowed !important; opacity: 0.6 !important; }
+
+      .rcai-close-btn {
+        padding: 5px 10px !important;
+        font-size: 14px !important;
+        background: rgba(255,255,255,0.2) !important;
+        color: white !important;
+        border: 1px solid rgba(255,255,255,0.3) !important;
+        border-radius: 4px !important;
+        cursor: pointer !important;
+        font-weight: bold !important;
+        line-height: 1 !important;
+      }
+
+      .rcai-close-btn:hover { background: rgba(239, 68, 68, 0.8) !important; }
+
+      #rcai-scroll {
+        padding: 8px !important;
+        background: white !important;
+        overflow-x: auto !important;
+        overflow-y: auto !important;
+      }
+
+      #rcai-popup.minimized #rcai-scroll { display: none !important; }
+
+      #rcai-table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+        font-size: 12px !important;
+        table-layout: fixed !important;
+      }
+
+      #rcai-table thead { position: sticky !important; top: 0 !important; z-index: 10 !important; background: white !important; }
+
+      #rcai-table td, #rcai-table th {
+        padding: 3px 5px !important;
+        border: 1px solid #e5e7eb !important;
+        background: white !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        height: 24px !important;
+        box-sizing: border-box !important;
+      }
+
+      #rcai-table td:nth-child(1), #rcai-table th:nth-child(1) { width: 50px !important; min-width: 50px !important; max-width: 50px !important; }
+      #rcai-table td:nth-child(2), #rcai-table th:nth-child(2) { width: 100px !important; min-width: 100px !important; max-width: 100px !important; }
+      #rcai-table td:nth-child(3), #rcai-table th:nth-child(3) { width: 100px !important; min-width: 100px !important; max-width: 100px !important; }
+      #rcai-table td:nth-child(4), #rcai-table th:nth-child(4) { width: 200px !important; min-width: 200px !important; }
+      #rcai-table td:nth-child(5), #rcai-table th:nth-child(5) { width: 50px !important; min-width: 50px !important; max-width: 50px !important; }
+      #rcai-table td:nth-child(6), #rcai-table th:nth-child(6) { width: 60px !important; min-width: 60px !important; max-width: 60px !important; }
+      #rcai-table td:nth-child(7), #rcai-table th:nth-child(7) { width: 50px !important; min-width: 50px !important; max-width: 50px !important; }
+      #rcai-table td:nth-child(8), #rcai-table th:nth-child(8) { width: 50px !important; min-width: 50px !important; max-width: 50px !important; }
+      #rcai-table td:nth-child(9), #rcai-table th:nth-child(9) { width: 50px !important; min-width: 50px !important; max-width: 50px !important; }
+      #rcai-table td:nth-child(10), #rcai-table th:nth-child(10) { width: 200px !important; min-width: 200px !important; }
+      #rcai-table td:nth-child(11), #rcai-table th:nth-child(11) { width: auto !important; min-width: 300px !important; }
+      #rcai-table td:last-child, #rcai-table th:last-child { width: 25px !important; min-width: 25px !important; max-width: 25px !important; text-align: center !important; }
+
+      #rcai-table input {
+        width: 100% !important;
+        padding: 3px 5px !important;
+        border: none !important;
+        font-size: 11px !important;
+        outline: none !important;
+        background: transparent !important;
+        box-sizing: border-box !important;
+      }
+
+      #rcai-table input:focus { background: #f3f4f6 !important; border: 1px solid #8b5cf6 !important; border-radius: 2px !important; }
+      #rcai-table thead tr { background: linear-gradient(135deg, #f8fafc, #f1f5f9) !important; }
+      #rcai-table thead input { font-weight: bold !important; color: #475569 !important; background: transparent !important; }
+
+      .remove-btn {
+        padding: 1px 3px !important;
+        font-size: 10px !important;
+        background: #ef4444 !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 2px !important;
+        cursor: pointer !important;
+        width: 16px !important;
+        height: 16px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        line-height: 1 !important;
+      }
+
+      .remove-btn:hover { background: #dc2626 !important; }
+    `);
+
+    // Constants for height calculation
+    const HEADER_HEIGHT = 45;
+    const ROW_HEIGHT = 26;
+    const HEADER_ROW_HEIGHT = 26;
+    const PADDING = 18;
+    const MAX_VISIBLE_ROWS = 10;
+
+    function adjustPopupHeight() {
+      const popup = document.getElementById('rcai-popup');
+      const scrollArea = document.getElementById('rcai-scroll');
+
+      if (!popup || !scrollArea || popup.classList.contains('minimized')) return;
+
       const rowCount = document.querySelectorAll('#rcai-body tr').length;
-      counter.textContent = `${rowCount} rows`;
-    }
-  }
+      const visibleRows = Math.min(rowCount, MAX_VISIBLE_ROWS);
 
-  function handleTab(e) {
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      const inputs = Array.from(document.querySelectorAll('#rcai-body tr input'));
-      const idx = inputs.indexOf(e.target);
-      const next = inputs[e.shiftKey ? idx-1 : idx+1];
-      if (next) next.focus();
-    }
-    if (e.ctrlKey && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
-      e.preventDefault();
-      const inputs = Array.from(document.querySelectorAll('#rcai-body tr input'));
-      const idx = inputs.indexOf(e.target);
-      const cols = 11;
-      let nextIdx = idx;
-      switch(e.key) {
-        case 'ArrowUp': nextIdx = idx - cols; break;
-        case 'ArrowDown': nextIdx = idx + cols; break;
-        case 'ArrowLeft': nextIdx = idx - 1; break;
-        case 'ArrowRight': nextIdx = idx + 1; break;
-      }
-      if (nextIdx >= 0 && nextIdx < inputs.length) {
-        inputs[nextIdx].focus();
+      // Calculate scroll area height
+      const scrollHeight = HEADER_ROW_HEIGHT + (visibleRows * ROW_HEIGHT) + PADDING;
+
+      // Set scroll area height
+      scrollArea.style.height = scrollHeight + 'px';
+
+      // Enable/disable scrolling
+      if (rowCount > MAX_VISIBLE_ROWS) {
+        scrollArea.style.overflowY = 'auto';
+      } else {
+        scrollArea.style.overflowY = 'hidden';
       }
     }
-  }
 
-  function removeRow(tr) {
-    const all = Array.from(document.querySelectorAll('#rcai-body tr'));
-    removedStack.push({
-      data: Array.from(tr.querySelectorAll('td')).slice(1,11).map(td => td.querySelector('input')?.value||''),
-      position: all.indexOf(tr)
-    });
-    document.getElementById('undo-btn').disabled = false;
-    tr.remove();
-    updateRowNumbers();
-  }
+    function storageKey() { return 'rcai:' + location.href; }
 
-  function undoRemove() {
-    if (!removedStack.length) return;
-    const { data, position } = removedStack.pop();
-    addRow(data, position);
-    if (!removedStack.length) document.getElementById('undo-btn').disabled = true;
-  }
-
-  function addHeaderRow() {
-    const hdr = ["#","FNSKU","DECISION","RC SUMMARY","DISC","FAULT","FOUND","DENY","RMS","BLURB","NOTES"];
-    const thead = document.createElement('thead');
-    const tr = document.createElement('tr');
-    hdr.forEach(h => {
-      const th = document.createElement('th');
-      const inp = document.createElement('input');
-      inp.value = h;
-      inp.readOnly = true;
-      inp.style.fontWeight = 'bold';
-      inp.style.background = 'transparent';
-      th.appendChild(inp);
-      tr.appendChild(th);
-    });
-    const th = document.createElement('th');
-    th.innerHTML = '';
-    tr.appendChild(th);
-    thead.appendChild(tr);
-    document.getElementById('rcai-table').appendChild(thead);
-  }
-
-  function createRowElement(data=[]) {
-    const tr = document.createElement('tr');
-    const numTd = document.createElement('td');
-    const numIn = document.createElement('input');
-    numIn.readOnly = true;
-    numIn.style.background = '#f8fafc';
-    numTd.appendChild(numIn);
-    tr.appendChild(numTd);
-    for (let i=0; i<9; i++) {
-      const td = document.createElement('td');
-      const inp = document.createElement('input');
-      inp.value = data[i] || '';
-      inp.onkeydown = handleTab;
-      inp.oninput = () => { if (!restoring) savePopupState(); };
-      td.appendChild(inp);
-      tr.appendChild(td);
-    }
-    const notesTd = document.createElement('td');
-    const notesIn = document.createElement('input');
-    notesIn.maxLength = 50;
-    notesIn.value = data[9] || '';
-    notesIn.onkeydown = handleTab;
-    notesIn.oninput = () => { if (!restoring) savePopupState(); };
-    notesTd.appendChild(notesIn);
-    tr.appendChild(notesTd);
-    const rmTd = document.createElement('td');
-    const rmBtn = document.createElement('button');
-    rmBtn.textContent = '-';
-    rmBtn.className = 'remove-btn';
-    rmBtn.onclick = () => { removeRow(tr); savePopupState(); };
-    rmTd.appendChild(rmBtn);
-    tr.appendChild(rmTd);
-    return tr;
-  }
-
-  function addRow(data=[], position=null) {
-    const body = document.getElementById('rcai-body');
-    if (!body) {
-      console.error('RCAI Results: Table body not found');
-      return;
+    function savePopupState() {
+      const rows = Array.from(document.querySelectorAll('#rcai-body tr'));
+      const data = rows.map(r =>
+        Array.from(r.querySelectorAll('td')).slice(1,11).map(td => td.querySelector('input')?.value||'')
+      );
+      localStorage.setItem(storageKey(), JSON.stringify(data));
     }
 
-    const row = createRowElement(data);
-    if (typeof position === 'number') {
-      const ref = body.children[position] || null;
-      body.insertBefore(row, ref);
-    } else {
-      body.appendChild(row);
+    function restorePopupState() {
+      const s = localStorage.getItem(storageKey());
+      if (!s) return false;
+      try {
+        const arr = JSON.parse(s);
+        if (!Array.isArray(arr) || !arr.length) return false;
+        arr.forEach(r => addRow(r));
+        updateRowNumbers();
+        updateRowCounter();
+        return true;
+      } catch { return false; }
     }
-    updateRowNumbers();
-  }
 
-  function toggleMinimize() {
-    const popup = document.getElementById('rcai-popup');
-    const btn = document.getElementById('minimize-btn');
-    const scrollArea = document.getElementById('rcai-scroll');
-
-    if (popup.classList.contains('minimized')) {
-      popup.classList.remove('minimized');
-      popup.style.height = '350px';
-      popup.style.minHeight = '200px';
-      popup.style.maxHeight = '90vh';
-      popup.style.resize = 'both';
-      btn.textContent = '_';
-      if (scrollArea) scrollArea.style.display = 'block';
-    } else {
-      popup.classList.add('minimized');
-      popup.style.height = '45px';
-      popup.style.minHeight = '45px';
-      popup.style.maxHeight = '45px';
-      popup.style.resize = 'none';
-      btn.textContent = '□';
-      if (scrollArea) scrollArea.style.display = 'none';
-    }
-  }
-
-  function copyData() {
-    const widths = [4,12,12,18,6,10,8,8,8,34,20];
-    let out = 'RCAI RESULTS:\n';
-    const hdr = ['#','FNSKU','DECISION','RC SUMMARY','DISC','FAULT','FOUND','DENY','RMS','BLURB','NOTES'];
-    out += '|' + hdr.map((h,i) => h.padEnd(widths[i])).join('|') + '\n';
-    let tF=0, tD=0, tR=0;
-    document.querySelectorAll('#rcai-body tr').forEach(r => {
-      const cells = Array.from(r.querySelectorAll('td')).slice(0,11);
-      const vals = cells.map((cell,i) => {
-        let v = cell.querySelector('input')?.value || '-';
-        if (i === 6) tF += parseFloat(v) || 0;
-        if (i === 7) tD += parseFloat(v) || 0;
-        if (i === 8) tR += parseFloat(v) || 0;
-        return v.slice(0,widths[i]-1).padEnd(widths[i]);
+    function updateRowNumbers() {
+      let c = 0;
+      document.querySelectorAll('#rcai-body tr').forEach(r => {
+        r.querySelector('td:first-child input').value = ++c;
       });
-      out += '|' + vals.join('|') + '\n';
-    });
-    const total = widths.map((w,i) => {
-      if (i === 5) return 'TOTALS →'.padEnd(w);
-      if (i === 6) return tF.toString().padEnd(w);
-      if (i === 7) return tD.toString().padEnd(w);
-      if (i === 8) return tR.toString().padEnd(w);
-      return ''.padEnd(w);
-    });
-    out += '|' + total.join('|') + '\n';
-    navigator.clipboard.writeText(out);
-  }
+      updateRowCounter();
+    }
 
-function autofillFromPage(append=false) {
-    console.log('Starting autofillFromPage, append:', append);
+    function updateRowCounter() {
+      const counter = document.querySelector('.row-counter-header');
+      if (counter) {
+        const rowCount = document.querySelectorAll('#rcai-body tr').length;
+        counter.textContent = `${rowCount} rows`;
+      }
+    }
 
-    const codeRx = /^[A-Z0-9]{10}$/;
-    const decRx = /^(DECLINE|APPROVE|PENDING|PARTIAL_DECLINE|PARTIAL|MANUAL)$/i;
-    const coll = [];
+    function handleTab(e) {
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        const inputs = Array.from(document.querySelectorAll('#rcai-body tr input'));
+        const idx = inputs.indexOf(e.target);
+        const next = inputs[e.shiftKey ? idx-1 : idx+1];
+        if (next) next.focus();
+      }
+      if (e.ctrlKey && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.preventDefault();
+        const inputs = Array.from(document.querySelectorAll('#rcai-body tr input'));
+        const idx = inputs.indexOf(e.target);
+        const cols = 11;
+        let nextIdx = idx;
+        switch(e.key) {
+          case 'ArrowUp': nextIdx = idx - cols; break;
+          case 'ArrowDown': nextIdx = idx + cols; break;
+          case 'ArrowLeft': nextIdx = idx - 1; break;
+          case 'ArrowRight': nextIdx = idx + 1; break;
+        }
+        if (nextIdx >= 0 && nextIdx < inputs.length) inputs[nextIdx].focus();
+      }
+    }
 
-    // Strategy 1: DOM Element scanning
-    console.log('Strategy 1: DOM element scanning...');
-    const elems = Array.from(document.querySelectorAll('body *'));
-    let foundData = false;
+    function removeRow(tr) {
+      const all = Array.from(document.querySelectorAll('#rcai-body tr'));
+      removedStack.push({
+        data: Array.from(tr.querySelectorAll('td')).slice(1,11).map(td => td.querySelector('input')?.value||''),
+        position: all.indexOf(tr)
+      });
+      document.getElementById('undo-btn').disabled = false;
+      tr.remove();
+      updateRowNumbers();
+      adjustPopupHeight();
+    }
 
-    elems.forEach((el, i) => {
+    function undoRemove() {
+      if (!removedStack.length) return;
+      const { data, position } = removedStack.pop();
+      addRow(data, position);
+      if (!removedStack.length) document.getElementById('undo-btn').disabled = true;
+    }
+
+    function addHeaderRow() {
+      const hdr = ["#","FNSKU","DECISION","RC SUMMARY","DISC","FAULT","FOUND","DENY","RMS","BLURB","NOTES"];
+      const thead = document.createElement('thead');
+      const tr = document.createElement('tr');
+      hdr.forEach(h => {
+        const th = document.createElement('th');
+        const inp = document.createElement('input');
+        inp.value = h;
+        inp.readOnly = true;
+        inp.style.fontWeight = 'bold';
+        inp.style.background = 'transparent';
+        th.appendChild(inp);
+        tr.appendChild(th);
+      });
+      const th = document.createElement('th');
+      th.innerHTML = '';
+      tr.appendChild(th);
+      thead.appendChild(tr);
+      document.getElementById('rcai-table').appendChild(thead);
+    }
+
+    function createRowElement(data=[]) {
+      const tr = document.createElement('tr');
+      const numTd = document.createElement('td');
+      const numIn = document.createElement('input');
+      numIn.readOnly = true;
+      numIn.style.background = '#f8fafc';
+      numTd.appendChild(numIn);
+      tr.appendChild(numTd);
+      for (let i=0; i<9; i++) {
+        const td = document.createElement('td');
+        const inp = document.createElement('input');
+        inp.value = data[i] || '';
+        inp.onkeydown = handleTab;
+        inp.oninput = () => { if (!restoring) savePopupState(); };
+        td.appendChild(inp);
+        tr.appendChild(td);
+      }
+      const notesTd = document.createElement('td');
+      const notesIn = document.createElement('input');
+      notesIn.maxLength = 50;
+      notesIn.value = data[9] || '';
+      notesIn.onkeydown = handleTab;
+      notesIn.oninput = () => { if (!restoring) savePopupState(); };
+      notesTd.appendChild(notesIn);
+      tr.appendChild(notesTd);
+      const rmTd = document.createElement('td');
+      const rmBtn = document.createElement('button');
+      rmBtn.textContent = '-';
+      rmBtn.className = 'remove-btn';
+      rmBtn.onclick = () => { removeRow(tr); savePopupState(); };
+      rmTd.appendChild(rmBtn);
+      tr.appendChild(rmTd);
+      return tr;
+    }
+
+    function addRow(data=[], position=null) {
+      const body = document.getElementById('rcai-body');
+      if (!body) { console.error('RCAI Results: Table body not found'); return; }
+      const row = createRowElement(data);
+      if (typeof position === 'number') {
+        const ref = body.children[position] || null;
+        body.insertBefore(row, ref);
+      } else {
+        body.appendChild(row);
+      }
+      updateRowNumbers();
+      adjustPopupHeight();
+    }
+
+    function toggleMinimize() {
+      const popup = document.getElementById('rcai-popup');
+      const btn = document.getElementById('minimize-btn');
+      const scrollArea = document.getElementById('rcai-scroll');
+
+      if (popup.classList.contains('minimized')) {
+        popup.classList.remove('minimized');
+        btn.textContent = '_';
+        if (scrollArea) scrollArea.style.display = 'block';
+        adjustPopupHeight();
+      } else {
+        popup.classList.add('minimized');
+        btn.textContent = '□';
+        if (scrollArea) scrollArea.style.display = 'none';
+      }
+    }
+
+    function closePopup() {
+      const popup = document.getElementById('rcai-popup');
+      if (popup) {
+        popup.remove();
+        popupVisible = false;
+      }
+    }
+
+    function copyData() {
+      const widths = [4,12,12,18,6,10,8,8,8,34,20];
+      let out = 'RCAI RESULTS:\n';
+      const hdr = ['#','FNSKU','DECISION','RC SUMMARY','DISC','FAULT','FOUND','DENY','RMS','BLURB','NOTES'];
+      out += '|' + hdr.map((h,i) => h.padEnd(widths[i])).join('|') + '\n';
+      let tF=0, tD=0, tR=0;
+      document.querySelectorAll('#rcai-body tr').forEach(r => {
+        const cells = Array.from(r.querySelectorAll('td')).slice(0,11);
+        const vals = cells.map((cell,i) => {
+          let v = cell.querySelector('input')?.value || '-';
+          if (i === 6) tF += parseFloat(v) || 0;
+          if (i === 7) tD += parseFloat(v) || 0;
+          if (i === 8) tR += parseFloat(v) || 0;
+          return v.slice(0,widths[i]-1).padEnd(widths[i]);
+        });
+        out += '|' + vals.join('|') + '\n';
+      });
+      const total = widths.map((w,i) => {
+        if (i === 5) return 'TOTALS →'.padEnd(w);
+        if (i === 6) return tF.toString().padEnd(w);
+        if (i === 7) return tD.toString().padEnd(w);
+        if (i === 8) return tR.toString().padEnd(w);
+        return ''.padEnd(w);
+      });
+      out += '|' + total.join('|') + '\n';
+      navigator.clipboard.writeText(out);
+    }
+
+    function autofillFromPage(append=false) {
+      console.log('Starting autofillFromPage, append:', append);
+      const codeRx = /^[A-Z0-9]{10}$/;
+      const decRx = /^(DECLINE|APPROVE|PENDING|PARTIAL_DECLINE|PARTIAL|MANUAL)$/i;
+      const coll = [];
+
+      console.log('Strategy 1: DOM element scanning...');
+      const elems = Array.from(document.querySelectorAll('body *'));
+      let foundData = false;
+
+      elems.forEach((el, i) => {
         const txt = (el.textContent || '').trim();
         if (!decRx.test(txt)) return;
 
         const decision = txt.toUpperCase().replace('PARTIAL_DECLINE', 'PARTIAL');
         const codes = [];
 
-        // Look for shortage quantity
         let disc = '';
         for (let j = i - 1; j >= Math.max(0, i - 10); j--) {
-            const t = (elems[j].textContent || '').trim();
-            if (t.toLowerCase().includes('shortage quantity')) {
-                for (let k = j + 1; k <= Math.min(elems.length - 1, j + 5); k++) {
-                    const numText = (elems[k].textContent || '').trim();
-                    if (/^\d+$/.test(numText)) {
-                        disc = numText;
-                        console.log('Found shortage quantity:', disc, 'near element', k);
-                        break;
-                    }
-                }
-                if (disc) break;
+          const t = (elems[j].textContent || '').trim();
+          if (t.toLowerCase().includes('shortage quantity')) {
+            for (let k = j + 1; k <= Math.min(elems.length - 1, j + 5); k++) {
+              const numText = (elems[k].textContent || '').trim();
+              if (/^\d+$/.test(numText)) { disc = numText; break; }
             }
-            if (j === i - 2 && !disc) {
-                const fallbackText = t.trim();
-                if (/^\d+$/.test(fallbackText)) {
-                    disc = fallbackText;
-                }
-            }
+            if (disc) break;
+          }
+          if (j === i - 2 && !disc) {
+            const fallbackText = t.trim();
+            if (/^\d+$/.test(fallbackText)) disc = fallbackText;
+          }
         }
 
-        // Find FNSKU codes
         for (let j = i - 1; j >= Math.max(0, i - 15); j--) {
-            const t = (elems[j].textContent || '').trim();
-            if (codeRx.test(t)) codes.push(t);
+          const t = (elems[j].textContent || '').trim();
+          if (codeRx.test(t)) codes.push(t);
         }
 
-        // Get RC Summary - Modified to handle both single and multiple RCs
         const next = elems[i + 1]?.textContent?.trim() || '';
         const rcParts = next.split(',');
 
-        // Different handling for single vs multiple RCs
         const rcSummary = rcParts.length > 1 ?
-              // Multiple RCs - trim each one
-              rcParts.map(it => {
-                  const trimmed = it.trim();
-                  // Special handling for Item Label Defect
-                  if (trimmed.toLowerCase().includes('item label defect')) {
-                      return 'Label';
-                  }
-                  // Get first word of each RC item
-                  const firstWord = trimmed.split(/\s+/)[0];
-                  return firstWord || trimmed; // Fallback to full item if no words
-              }).join(', ')
-        :
-        // Single RC - return the full text
-        rcParts[0].trim();
+          rcParts.map(it => {
+            const trimmed = it.trim();
+            if (trimmed.toLowerCase().includes('item label defect')) return 'Label';
+            const firstWord = trimmed.split(/\s+/)[0];
+            return firstWord || trimmed;
+          }).join(', ')
+          : rcParts[0].trim();
 
-
-
-
-        // Determine fault
         let fault = 'NONE';
         for (let k = i + 1; k < Math.min(elems.length, i + 20); k++) {
-            const s = (elems[k].textContent || '').toLowerCase();
-            if (s.includes('summary of the findings')) {
-                const hasS = s.includes('no shortage was caused by seller fault');
-                const hasA = s.includes('no shortage was caused by amazon fault');
-                if (!hasS && hasA) fault = 'Seller';
-                else if (!hasA && hasS) fault = 'Amazon';
-                else if (!hasS && !hasA) fault = 'BOTH';
-                break;
-            }
+          const s = (elems[k].textContent || '').toLowerCase();
+          if (s.includes('summary of the findings')) {
+            const hasS = s.includes('no shortage was caused by seller fault');
+            const hasA = s.includes('no shortage was caused by amazon fault');
+            if (!hasS && hasA) fault = 'Seller';
+            else if (!hasA && hasS) fault = 'Amazon';
+            else if (!hasS && !hasA) fault = 'BOTH';
+            break;
+          }
         }
 
         if (codes.length >= 2) {
-            coll.push([codes[1], decision, rcSummary, disc, fault, '', '', '', '', '']);
-            foundData = true;
-            console.log('Added row:', codes[1], 'with RC Summary:', rcSummary);
+          coll.push([codes[1], decision, rcSummary, disc, fault, '', '', '', '', '']);
+          foundData = true;
         }
-    });
-
-    // Strategy 2: Table-based extraction as fallback
-    if (!foundData) {
-      console.log('Strategy 2: Table-based extraction...');
-      const allTables = document.querySelectorAll('table');
-
-      allTables.forEach((table) => {
-        const headerRow = Array.from(table.querySelectorAll('tr')).find(row => {
-          const text = row.textContent.toLowerCase();
-          return text.includes('fnsku') && text.includes('shortage quantity') && text.includes('decision');
-        });
-
-        if (!headerRow) return;
-
-        const headerCells = headerRow.querySelectorAll('th, td');
-        let fnskuIndex = -1, asinIndex = -1, decisionIndex = -1, summaryIndex = -1, shortageIndex = -1;
-
-        headerCells.forEach((cell, index) => {
-          const text = cell.textContent.toLowerCase().trim();
-          if (text === 'fnsku') fnskuIndex = index;
-          else if (text === 'asin') asinIndex = index;
-          else if (text === 'decision') decisionIndex = index;
-          else if (text.includes('root cause')) summaryIndex = index;
-          else if (text === 'shortage quantity') shortageIndex = index;
-        });
-
-        if (fnskuIndex === -1 || decisionIndex === -1 || shortageIndex === -1) return;
-
-        const allRows = Array.from(table.querySelectorAll('tr'));
-        const dataRows = allRows.filter(row => row !== headerRow && row.querySelectorAll('td').length > 0);
-
-        dataRows.forEach((row) => {
-          const cells = row.querySelectorAll('td');
-          if (cells.length === 0) return;
-
-          const fnsku = cells[fnskuIndex]?.textContent?.trim() || '';
-          const asin = cells[asinIndex]?.textContent?.trim() || '';
-          const decision = cells[decisionIndex]?.textContent?.trim() || '';
-          const rcSummary = cells[summaryIndex]?.textContent?.trim() || '';
-          const shortage = cells[shortageIndex]?.textContent?.trim() || '';
-
-          if (fnsku && asin && fnsku === asin && decision && decRx.test(decision)) {
-            const fault = determineFaultFromSummary(rcSummary);
-            const normalizedDecision = decision.toUpperCase().replace('PARTIAL_DECLINE', 'PARTIAL');
-            coll.push([fnsku, normalizedDecision, rcSummary, shortage, fault, '', '', '', '', '']);
-            foundData = true;
-          }
-        });
       });
-    }
 
-    console.log('Total entries found:', coll.length);
+      if (!foundData) {
+        console.log('Strategy 2: Table-based extraction...');
+        const allTables = document.querySelectorAll('table');
 
-    const uniqueData = [];
-    const seenFNSKUs = new Set();
-    coll.forEach(row => {
-      if (!seenFNSKUs.has(row[0])) {
-        seenFNSKUs.add(row[0]);
-        uniqueData.push(row);
+        allTables.forEach((table) => {
+          const headerRow = Array.from(table.querySelectorAll('tr')).find(row => {
+            const text = row.textContent.toLowerCase();
+            return text.includes('fnsku') && text.includes('shortage quantity') && text.includes('decision');
+          });
+
+          if (!headerRow) return;
+
+          const headerCells = headerRow.querySelectorAll('th, td');
+          let fnskuIndex = -1, asinIndex = -1, decisionIndex = -1, summaryIndex = -1, shortageIndex = -1;
+
+          headerCells.forEach((cell, index) => {
+            const text = cell.textContent.toLowerCase().trim();
+            if (text === 'fnsku') fnskuIndex = index;
+            else if (text === 'asin') asinIndex = index;
+            else if (text === 'decision') decisionIndex = index;
+            else if (text.includes('root cause')) summaryIndex = index;
+            else if (text === 'shortage quantity') shortageIndex = index;
+          });
+
+          if (fnskuIndex === -1 || decisionIndex === -1 || shortageIndex === -1) return;
+
+          const allRows = Array.from(table.querySelectorAll('tr'));
+          const dataRows = allRows.filter(row => row !== headerRow && row.querySelectorAll('td').length > 0);
+
+          dataRows.forEach((row) => {
+            const cells = row.querySelectorAll('td');
+            if (cells.length === 0) return;
+
+            const fnsku = cells[fnskuIndex]?.textContent?.trim() || '';
+            const asin = cells[asinIndex]?.textContent?.trim() || '';
+            const decision = cells[decisionIndex]?.textContent?.trim() || '';
+            const rcSummary = cells[summaryIndex]?.textContent?.trim() || '';
+            const shortage = cells[shortageIndex]?.textContent?.trim() || '';
+
+            if (fnsku && asin && fnsku === asin && decision && decRx.test(decision)) {
+              const fault = determineFaultFromSummary(rcSummary);
+              const normalizedDecision = decision.toUpperCase().replace('PARTIAL_DECLINE', 'PARTIAL');
+              coll.push([fnsku, normalizedDecision, rcSummary, shortage, fault, '', '', '', '', '']);
+              foundData = true;
+            }
+          });
+        });
       }
-    });
 
-    console.log('Unique entries:', uniqueData.length);
+      const uniqueData = [];
+      const seenFNSKUs = new Set();
+      coll.forEach(row => {
+        if (!seenFNSKUs.has(row[0])) {
+          seenFNSKUs.add(row[0]);
+          uniqueData.push(row);
+        }
+      });
 
-    if (!append) {
-      document.querySelectorAll('#rcai-body tr').forEach(r => r.remove());
+      if (!append) document.querySelectorAll('#rcai-body tr').forEach(r => r.remove());
+      uniqueData.forEach(r => addRow(r));
+      updateRowNumbers();
+      adjustPopupHeight();
     }
 
-    uniqueData.forEach(r => addRow(r));
-    updateRowNumbers();
-  }
+    function determineFaultFromSummary(summary) {
+      if (!summary) return 'NONE';
+      const text = summary.toLowerCase();
+      if (text.includes('item substitution') || text.includes('carton missing')) return 'Seller';
+      if (text.includes('fc operation') || text.includes('amazon') || text.includes('warehouse')) return 'Amazon';
+      if (text.includes('damaged') || text.includes('defective')) return 'Unknown';
+      return 'NONE';
+    }
 
-  function determineFaultFromSummary(summary) {
-    if (!summary) return 'NONE';
-    const text = summary.toLowerCase();
-    if (text.includes('item substitution') || text.includes('carton missing')) return 'Seller';
-    if (text.includes('fc operation') || text.includes('amazon') || text.includes('warehouse')) return 'Amazon';
-    if (text.includes('damaged') || text.includes('defective')) return 'Unknown';
-    return 'NONE';
-  }
-
-  function createPopup() {
-    if (popupVisible) return;
-    popupVisible = true;
-    const popup = document.createElement('div');
-    popup.id = 'rcai-popup';
-    popup.innerHTML = `
-      <div class="rcai-header">
-        <div class="rcai-header-left">
-          <span>RCAI RESULTS</span>
-          <span class="row-counter-header">0 rows</span>
+    function createPopup() {
+      if (popupVisible) return;
+      popupVisible = true;
+      const popup = document.createElement('div');
+      popup.id = 'rcai-popup';
+      popup.innerHTML = `
+        <div class="rcai-header">
+          <div class="rcai-header-left">
+            <span>RCAI RESULTS</span>
+            <span class="row-counter-header">0 rows</span>
+          </div>
+          <div class="rcai-controls">
+            <button id="add-row">Add Row</button>
+            <button id="rescan-btn">Rescan</button>
+            <button id="undo-btn" disabled>Undo</button>
+            <button id="copy-only">Copy</button>
+            <button id="copy-close">Copy & Close</button>
+            <button id="minimize-btn">_</button>
+            <button id="close-btn" class="rcai-close-btn">✕</button>
+          </div>
         </div>
-        <div class="rcai-controls">
-          <button id="add-row">Add Row</button>
-          <button id="rescan-btn">Rescan</button>
-          <button id="undo-btn" disabled>Undo</button>
-          <button id="copy-only">Copy</button>
-          <button id="copy-close">Copy & Close</button>
-          <button id="minimize-btn">_</button>
-        </div>
-      </div>
-      <div id="rcai-scroll">
-        <table id="rcai-table"><tbody id="rcai-body"></tbody></table>
-      </div>`;
-    document.body.appendChild(popup);
+        <div id="rcai-scroll">
+          <table id="rcai-table"><tbody id="rcai-body"></tbody></table>
+        </div>`;
+      document.body.appendChild(popup);
 
-    document.getElementById('add-row').onclick = () => { addRow(); savePopupState(); };
-    document.getElementById('rescan-btn').onclick = () => { autofillFromPage(true); savePopupState(); };
-    document.getElementById('undo-btn').onclick = () => { undoRemove(); savePopupState(); };
-    document.getElementById('copy-only').onclick = copyData;
-    document.getElementById('copy-close').onclick = () => { copyData(); popup.remove(); popupVisible = false; };
-    document.getElementById('minimize-btn').onclick = toggleMinimize;
+      document.getElementById('add-row').onclick = () => { addRow(); savePopupState(); };
+      document.getElementById('rescan-btn').onclick = () => { autofillFromPage(true); savePopupState(); };
+      document.getElementById('undo-btn').onclick = () => { undoRemove(); savePopupState(); };
+      document.getElementById('copy-only').onclick = copyData;
+      document.getElementById('copy-close').onclick = () => { copyData(); closePopup(); };
+      document.getElementById('minimize-btn').onclick = toggleMinimize;
+      document.getElementById('close-btn').onclick = closePopup;
 
-    addHeaderRow();
-    restoring = true;
-    const ok = restorePopupState();
-    restoring = false;
-    if (!ok) autofillFromPage(false);
-    if (!document.querySelector('#rcai-body tr')) addRow();
+      addHeaderRow();
+      restoring = true;
+      const ok = restorePopupState();
+      restoring = false;
+      if (!ok) autofillFromPage(false);
+      if (!document.querySelector('#rcai-body tr')) addRow();
+
+      // Adjust height after content is loaded
+      setTimeout(adjustPopupHeight, 50);
+    }
+
+    document.addEventListener('keydown', e => {
+      if (e.altKey && e.key.toLowerCase() === 'r' && hasRCAI()) createPopup();
+    });
   }
-
-  document.addEventListener('keydown', e => {
-    if (e.altKey && e.key.toLowerCase() === 'r' && hasRCAI()) createPopup();
-  });
-}
-
 
 
 
@@ -1365,7 +1245,6 @@ function autofillFromPage(append=false) {
         const cells = r.querySelectorAll('td');
         let uid = null;
 
-        // Find Serenity ID (long alphanumeric string)
         cells.forEach(c => {
           const m = c.textContent.trim().match(/\b[A-Za-z0-9]{55,}\b/);
           if (m) uid = m[0];
@@ -1373,23 +1252,18 @@ function autofillFromPage(append=false) {
 
         if (!uid) return;
 
-        // Find date in row
         const dm = r.textContent.match(/\b(\d{4}-\d{2}-\d{2})\b/);
         if (!dm) return;
 
         const ds = dm[1];
-
-        // Check if date is within range (inclusive)
         if (ds < startDate || ds > endDate) return;
 
-        // Find quantity
         let qty = 0;
         cells.forEach(c => {
           const m = c.textContent.trim().match(/^\d+$/);
           if (m) qty = parseInt(m[0], 10);
         });
 
-        // Add to map (sum quantities for duplicate IDs)
         map.set(uid, (map.get(uid) || 0) + qty);
       });
 
@@ -1399,17 +1273,14 @@ function autofillFromPage(append=false) {
     function waitForPageLoad() {
       return new Promise((resolve) => {
         let attempts = 0;
-        const maxAttempts = 50; // 10 seconds max wait
+        const maxAttempts = 50;
 
         const checkInterval = setInterval(() => {
           attempts++;
-
-          // Check if page has loaded by looking for table content
           const hasContent = document.querySelectorAll('table tr').length > 1;
 
           if (hasContent || attempts >= maxAttempts) {
             clearInterval(checkInterval);
-            // Additional small delay to ensure content is fully rendered
             setTimeout(resolve, 200);
           }
         }, 200);
@@ -1426,57 +1297,35 @@ function autofillFromPage(append=false) {
       const endDate = addDays(startDate, 46);
       const allResults = new Map();
       let pageCount = 1;
-      const maxPages = 50; // Safety limit
+      const maxPages = 50;
 
-      // Update button text to show processing
       btn.textContent = `Processing Page ${pageCount}...`;
       btn.disabled = true;
 
       while (pageCount <= maxPages) {
-        // Process current page
         const pageResults = extractFromCurrentPage(startDate, endDate);
 
-        // Merge results
         pageResults.forEach((qty, uid) => {
           allResults.set(uid, (allResults.get(uid) || 0) + qty);
         });
 
-        // Look for "Get next batch" button with more specific detection
         const nextBatchBtn = Array.from(document.querySelectorAll('button, a, input[type="button"], input[type="submit"], span'))
           .find(el => {
             const text = (el.textContent || el.value || '').toLowerCase().trim();
-            return text.includes('get next batch') ||
-                   text.includes('next batch') ||
-                   text.includes('get next') ||
-                   (text.includes('next') && text.includes('batch'));
+            return text.includes('get next batch') || text.includes('next batch') || text.includes('get next') || (text.includes('next') && text.includes('batch'));
           });
 
-        // More robust check for button availability
-        if (!nextBatchBtn ||
-            nextBatchBtn.disabled ||
-            nextBatchBtn.style.display === 'none' ||
-            nextBatchBtn.offsetParent === null ||
-            window.getComputedStyle(nextBatchBtn).display === 'none') {
-          console.log('No more pages - next batch button not found or disabled');
-          break; // No more pages
+        if (!nextBatchBtn || nextBatchBtn.disabled || nextBatchBtn.style.display === 'none' ||
+            nextBatchBtn.offsetParent === null || window.getComputedStyle(nextBatchBtn).display === 'none') {
+          break;
         }
 
-        console.log(`Found next batch button on page ${pageCount}, clicking...`);
-
-        // Click next batch and wait for page to load
         pageCount++;
         btn.textContent = `Processing Page ${pageCount}...`;
         nextBatchBtn.click();
-
-        // Wait for new content to load
         await waitForPageLoad();
       }
 
-      if (pageCount > maxPages) {
-        console.log('Stopped at safety limit of', maxPages, 'pages');
-      }
-
-      // Reset button
       btn.textContent = 'Extract Serenity IDs';
       btn.disabled = false;
 
@@ -1491,157 +1340,118 @@ function autofillFromPage(append=false) {
       alert(`Copied ${allResults.size} Serenity ID(s) from ${startDate} to ${endDate} across ${pageCount} pages. Total Quantity: ${total}`);
     }
 
-      const btn = document.createElement('button');
-      btn.className = 'standard-floating-btn';
-      btn.textContent = 'Extract Serenity IDs';
-      btn.style.bottom = '20px';
-      btn.style.right = '20px';
+    const btn = document.createElement('button');
+    btn.className = 'standard-floating-btn';
+    btn.textContent = 'Extract Serenity IDs';
+    btn.style.bottom = '20px';
+    btn.style.right = '20px';
     btn.addEventListener('click', extractSerenityIDs);
     document.body.appendChild(btn);
   }
 
+  /////////////////////////////////
+  // 5) SANTOS Checker           //
+  /////////////////////////////////
 
-
-
-/////////////////////////////////
-// 5) SANTOS Checker - Fixed    //
-/////////////////////////////////
-
-if (isFeatureEnabled('santosChecker') &&
-    /paragon-na\.amazon\.com\/ilac\/view-ilac-report\?/.test(location.href)) {
+  if (isFeatureEnabled('santosChecker') &&
+      /paragon-na\.amazon\.com\/ilac\/view-ilac-report\?/.test(location.href)) {
 
     function createSubtleNotification(message, type = 'info') {
-        const notification = document.createElement('div');
-        notification.style.cssText = `
-            position: fixed;
-            top: 10px;
-            right: 10px;
-            background: ${type === 'success' ? '#d4edda' : type === 'error' ? '#f8d7da' : '#d1ecf1'};
-            color: ${type === 'success' ? '#155724' : type === 'error' ? '#721c24' : '#0c5460'};
-            border: 1px solid ${type === 'success' ? '#c3e6cb' : type === 'error' ? '#f5c6cb' : '#bee5eb'};
-            padding: 12px 16px;
-            border-radius: 4px;
-            font-size: 14px;
-            font-family: Arial, sans-serif;
-            z-index: 10000;
-            max-width: 300px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            opacity: 0;
-            transition: opacity 0.3s ease-in-out;
-        `;
-        notification.textContent = message;
-        document.body.appendChild(notification);
-        setTimeout(() => notification.style.opacity = '1', 10);
-        setTimeout(() => {
-            notification.style.opacity = '0';
-            setTimeout(() => notification.remove(), 300);
-        }, 5000);
+      const notification = document.createElement('div');
+      notification.style.cssText = `
+        position: fixed; top: 10px; right: 10px;
+        background: ${type === 'success' ? '#d4edda' : type === 'error' ? '#f8d7da' : '#d1ecf1'};
+        color: ${type === 'success' ? '#155724' : type === 'error' ? '#721c24' : '#0c5460'};
+        border: 1px solid ${type === 'success' ? '#c3e6cb' : type === 'error' ? '#f5c6cb' : '#bee5eb'};
+        padding: 12px 16px; border-radius: 4px; font-size: 14px; font-family: Arial, sans-serif;
+        z-index: 10000; max-width: 300px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        opacity: 0; transition: opacity 0.3s ease-in-out;
+      `;
+      notification.textContent = message;
+      document.body.appendChild(notification);
+      setTimeout(() => notification.style.opacity = '1', 10);
+      setTimeout(() => {
+        notification.style.opacity = '0';
+        setTimeout(() => notification.remove(), 300);
+      }, 5000);
     }
 
     async function extractMIDFromCopyButton() {
-        // Find the Copy MID button
-        const buttons = Array.from(document.querySelectorAll('button, a'));
-        const copyMIDBtn = buttons.find(btn =>
-                                        btn.textContent && btn.textContent.trim() === 'Copy MID'
-                                       );
+      const buttons = Array.from(document.querySelectorAll('button, a'));
+      const copyMIDBtn = buttons.find(btn => btn.textContent && btn.textContent.trim() === 'Copy MID');
 
-        if (!copyMIDBtn) {
-            console.log('Copy MID button not found');
-            return null;
-        }
+      if (!copyMIDBtn) return null;
 
-        // Find MID in the page near the Copy MID button
-        const parentElement = copyMIDBtn.closest('tr') || copyMIDBtn.parentElement;
-        if (parentElement) {
-            const text = parentElement.textContent;
-            // Look for MID pattern in text
-            const midMatch = text.match(/\((\d{7,15})\)/);
-            if (midMatch && midMatch[1]) {
-                return midMatch[1];
-            }
+      const parentElement = copyMIDBtn.closest('tr') || copyMIDBtn.parentElement;
+      if (parentElement) {
+        const text = parentElement.textContent;
+        const midMatch = text.match(/\((\d{7,15})\)/);
+        if (midMatch && midMatch[1]) return midMatch[1];
 
-            // Alternative: look for text before "Copy MID" button
-            const buttonText = copyMIDBtn.previousSibling?.textContent?.trim();
-            if (buttonText && /^\d{7,15}$/.test(buttonText)) {
-                return buttonText;
-            }
-        }
+        const buttonText = copyMIDBtn.previousSibling?.textContent?.trim();
+        if (buttonText && /^\d{7,15}$/.test(buttonText)) return buttonText;
+      }
 
-        // If still not found, try finding MID in the page
-        const pageText = document.body.innerText;
-        const merchantPattern = /(?:Merchant[^\n]*?|Customer[^\n]*?ID:)\s*([A-Z0-9]+)\s*\(\s*(\d{7,15})\s*\)/i;
-        const merchantMatch = pageText.match(merchantPattern);
-        if (merchantMatch && merchantMatch[2]) {
-            return merchantMatch[2];
-        }
+      const pageText = document.body.innerText;
+      const merchantPattern = /(?:Merchant[^\n]*?|Customer[^\n]*?ID:)\s*([A-Z0-9]+)\s*\(\s*(\d{7,15})\s*\)/i;
+      const merchantMatch = pageText.match(merchantPattern);
+      if (merchantMatch && merchantMatch[2]) return merchantMatch[2];
 
-        return null;
+      return null;
     }
 
-
     async function checkForSANTOS() {
-        console.log('SANTOS check started');
+      try {
+        const mid = await extractMIDFromCopyButton();
 
-        try {
-            const mid = await extractMIDFromCopyButton();
-
-            if (!mid) {
-                createSubtleNotification('Could not extract MID from Copy button', 'error');
-                return;
-            }
-
-            console.log('Found MID:', mid);
-            localStorage.setItem('santosCheckerMID', mid);
-            createSubtleNotification('Found MID: ' + mid + '. Opening SANTOS checker...', 'success');
-
-            const santosURL = `https://fba-registration-console-na.aka.amazon.com/merchants/${mid}`;
-            window.open(santosURL, '_blank');
-        } catch (error) {
-            console.error('Error during SANTOS check:', error);
-            createSubtleNotification('Error extracting MID', 'error');
+        if (!mid) {
+          createSubtleNotification('Could not extract MID from Copy button', 'error');
+          return;
         }
+
+        localStorage.setItem('santosCheckerMID', mid);
+        createSubtleNotification('Found MID: ' + mid + '. Opening SANTOS checker...', 'success');
+
+        const santosURL = `https://fba-registration-console-na.aka.amazon.com/merchants/${mid}`;
+        window.open(santosURL, '_blank');
+      } catch (error) {
+        createSubtleNotification('Error extracting MID', 'error');
+      }
     }
 
     function addSANTOSButton() {
-        if (document.getElementById('santos-check-btn')) {
-            return;
+      if (document.getElementById('santos-check-btn')) return;
+
+      const buttons = document.querySelectorAll('button, input[type="button"], a');
+      let copyMIDButton = null;
+
+      for (let btn of buttons) {
+        if (btn.textContent && btn.textContent.trim() === 'Copy MID') {
+          copyMIDButton = btn;
+          break;
         }
+      }
 
-        const buttons = document.querySelectorAll('button, input[type="button"], a');
-        let copyMIDButton = null;
+      if (!copyMIDButton) return;
 
-        for (let btn of buttons) {
-            if (btn.textContent && btn.textContent.trim() === 'Copy MID') {
-                copyMIDButton = btn;
-                break;
-            }
-        }
+      const santosBtn = document.createElement('button');
+      santosBtn.id = 'santos-check-btn';
+      santosBtn.textContent = 'Check for SANTOS';
+      santosBtn.style.cssText = copyMIDButton.style.cssText;
+      santosBtn.className = copyMIDButton.className;
+      santosBtn.style.marginLeft = '10px';
 
-        if (!copyMIDButton) {
-            return;
-        }
+      santosBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        checkForSANTOS();
+      });
 
-        const santosBtn = document.createElement('button');
-        santosBtn.id = 'santos-check-btn';
-        santosBtn.textContent = 'Check for SANTOS';
-
-        santosBtn.style.cssText = copyMIDButton.style.cssText;
-        santosBtn.className = copyMIDButton.className;
-        santosBtn.style.marginLeft = '10px';
-
-        santosBtn.addEventListener('click', function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            checkForSANTOS();
-        });
-
-        if (copyMIDButton.nextSibling) {
-            copyMIDButton.parentNode.insertBefore(santosBtn, copyMIDButton.nextSibling);
-        } else {
-            copyMIDButton.parentNode.appendChild(santosBtn);
-        }
-
-        console.log('SANTOS button added');
+      if (copyMIDButton.nextSibling) {
+        copyMIDButton.parentNode.insertBefore(santosBtn, copyMIDButton.nextSibling);
+      } else {
+        copyMIDButton.parentNode.appendChild(santosBtn);
+      }
     }
 
     setTimeout(addSANTOSButton, 1000);
@@ -1649,815 +1459,715 @@ if (isFeatureEnabled('santosChecker') &&
 
     const observer = new MutationObserver(addSANTOSButton);
     observer.observe(document.body, { childList: true, subtree: true });
-}
+  }
 
-// SANTOS PAGE SCRIPT - CLEAN VERSION
-if (location.href.includes('fba-registration-console-na.aka.amazon.com')) {
-    console.log('SANTOS page script loaded');
-
-    // Subtle notification function for SANTOS page
+  // SANTOS PAGE SCRIPT
+  if (location.href.includes('fba-registration-console-na.aka.amazon.com')) {
     function createSantosNotification(message, type = 'info') {
-        const notification = document.createElement('div');
-        notification.style.cssText = `
-            position: fixed;
-            top: 10px;
-            right: 10px;
-            background: ${type === 'success' ? '#d4edda' : type === 'error' ? '#f8d7da' : '#d1ecf1'};
-            color: ${type === 'success' ? '#155724' : type === 'error' ? '#721c24' : '#0c5460'};
-            border: 1px solid ${type === 'success' ? '#c3e6cb' : type === 'error' ? '#f5c6cb' : '#bee5eb'};
-            padding: 12px 16px;
-            border-radius: 4px;
-            font-size: 14px;
-            font-family: Arial, sans-serif;
-            z-index: 10000;
-            max-width: 300px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            opacity: 0;
-            transition: opacity 0.3s ease-in-out;
-        `;
-        notification.textContent = message;
-        document.body.appendChild(notification);
-        setTimeout(() => notification.style.opacity = '1', 10);
-        setTimeout(() => {
-            notification.style.opacity = '0';
-            setTimeout(() => notification.remove(), 300);
-        }, 3000);
+      const notification = document.createElement('div');
+      notification.style.cssText = `
+        position: fixed; top: 10px; right: 10px;
+        background: ${type === 'success' ? '#d4edda' : type === 'error' ? '#f8d7da' : '#d1ecf1'};
+        color: ${type === 'success' ? '#155724' : type === 'error' ? '#721c24' : '#0c5460'};
+        border: 1px solid ${type === 'success' ? '#c3e6cb' : type === 'error' ? '#f5c6cb' : '#bee5eb'};
+        padding: 12px 16px; border-radius: 4px; font-size: 14px; font-family: Arial, sans-serif;
+        z-index: 10000; max-width: 300px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        opacity: 0; transition: opacity 0.3s ease-in-out;
+      `;
+      notification.textContent = message;
+      document.body.appendChild(notification);
+      setTimeout(() => notification.style.opacity = '1', 10);
+      setTimeout(() => {
+        notification.style.opacity = '0';
+        setTimeout(() => notification.remove(), 300);
+      }, 3000);
     }
 
     setTimeout(() => {
-        const pageText = document.body.innerText.toUpperCase();
-        const hasSANTOS = pageText.includes('SANTOS');
+      const pageText = document.body.innerText.toUpperCase();
+      const hasSANTOS = pageText.includes('SANTOS');
 
-        if (hasSANTOS) {
-            createSantosNotification('SANTOS found and highlighted!', 'success');
+      if (hasSANTOS) {
+        createSantosNotification('SANTOS found and highlighted!', 'success');
 
-            // Highlight all table cells containing SANTOS
-            document.querySelectorAll('td').forEach(cell => {
-                if (cell.textContent.toUpperCase().includes('SANTOS')) {
-                    cell.style.backgroundColor = '#FFFF00';
-                    cell.style.border = '5px solid #FF0000';
-                    cell.style.fontWeight = 'bold';
-                    cell.style.fontSize = '18px';
-                }
-            });
-
-        } else {
-            createSantosNotification('No SANTOS found - closing in 3 seconds', 'error');
-            setTimeout(() => window.close(), 3000);
-        }
-
+        document.querySelectorAll('td').forEach(cell => {
+          if (cell.textContent.toUpperCase().includes('SANTOS')) {
+            cell.style.backgroundColor = '#FFFF00';
+            cell.style.border = '5px solid #FF0000';
+            cell.style.fontWeight = 'bold';
+            cell.style.fontSize = '18px';
+          }
+        });
+      } else {
+        createSantosNotification('No SANTOS found - closing in 3 seconds', 'error');
+        setTimeout(() => window.close(), 3000);
+      }
     }, 2000);
-}
+  }
 
+  /////////////////////////////////
+  // 6) Check Mapping            //
+  /////////////////////////////////
 
-
-
-
-/////////////////////////////////
-// 6) Check Mapping - IMPROVED UI //
-/////////////////////////////////
-
-if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fnsku-commingling-console-na.aka.amazon.com/tool/fnsku-mappings-tool')) {
+  if (isFeatureEnabled('filterAllMID') && location.href.startsWith('https://fba-fnsku-commingling-console-na.aka.amazon.com/tool/fnsku-mappings-tool')) {
     console.log('FNSKU MID Search: Initializing floating button...');
 
     let isSearching = false;
     let searchResults = [];
 
-    // Add improved CSS styles for Check Mapping
     GM_addStyle(`
-        #mid-search-panel {
-            position: fixed;
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.12);
-            z-index: 10000;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            width: 380px;
-            overflow: hidden;
-            border: 1px solid #e1e5e9;
-            animation: slideUpIn 0.3s ease-out;
-        }
-
-        @keyframes slideUpIn {
-            from { transform: translateY(20px); opacity: 0; }
-            to { transform: translateY(0); opacity: 1; }
-        }
-
-        .mid-panel-header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 12px 16px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-        }
-
-        .mid-panel-title {
-            color: white;
-            font-size: 16px;
-            font-weight: 700;
-            margin: 0;
-        }
-
-        .mid-panel-close {
-            background: rgba(255,255,255,0.2);
-            border: none;
-            color: white;
-            width: 28px;
-            height: 28px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            font-size: 16px;
-            line-height: 1;
-            transition: background 0.2s ease;
-        }
-
-        .mid-panel-close:hover {
-            background: rgba(255,255,255,0.3);
-        }
-
-        .mid-panel-content {
-            padding: 16px;
-            background: #fafbfc;
-        }
-
-        .mid-input-group {
-            margin-bottom: 16px;
-        }
-
-        .mid-input-label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 600;
-            color: #2d3748;
-            font-size: 14px;
-        }
-
-        .mid-input-field {
-            width: 100%;
-            padding: 12px 16px;
-            border: 2px solid #e1e5e9;
-            border-radius: 8px;
-            font-size: 14px;
-            outline: none;
-            transition: all 0.2s ease;
-            background: white;
-            font-family: inherit;
-            box-sizing: border-box;
-        }
-
-        .mid-input-field:focus {
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-
-        .mid-search-btn {
-            width: 100%;
-            padding: 12px 16px;
-            background: #000000;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            font-family: inherit;
-            box-sizing: border-box;
-            margin-bottom: 0;
-        }
-
-        .mid-search-btn:hover:not(:disabled) {
-            background: #333333;
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-        }
-
-        .mid-search-btn:disabled {
-            background: #666666;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
-        }
-
-        .mid-status {
-            font-size: 13px;
-            text-align: center;
-            min-height: 18px;
-            margin: 12px 0 0 0;
-            padding: 8px;
-            border-radius: 6px;
-            font-weight: 500;
-        }
-
-        .mid-status:empty {
-            padding: 0;
-            margin: 0;
-            min-height: 0;
-        }
-
-        .mid-status.info {
-            background: #dbeafe;
-            color: #1e40af;
-            border: 1px solid #bfdbfe;
-        }
-        .mid-status.success {
-            background: #dcfce7;
-            color: #166534;
-            border: 1px solid #bbf7d0;
-        }
-        .mid-status.error {
-            background: #fef2f2;
-            color: #dc2626;
-            border: 1px solid #fecaca;
-        }
-        .mid-status.warning {
-            background: #fffbeb;
-            color: #d97706;
-            border: 1px solid #fed7aa;
-        }
-
-        .mid-results {
-            max-height: 200px;
-            overflow-y: auto;
-            margin-top: 12px;
-            border-radius: 6px;
-            background: white;
-            border: 1px solid #e1e5e9;
-        }
-
-        .mid-results:empty {
-            display: none !important;
-        }
-
-        .mid-result-item {
-            margin: 8px;
-            padding: 12px;
-            background: #f8fafc;
-            border-radius: 6px;
-            border-left: 3px solid #667eea;
-            font-size: 12px;
-        }
-
-        .mid-result-title {
-            font-weight: 600;
-            color: #1e293b;
-            margin-bottom: 6px;
-        }
-
-        .mid-result-details {
-            color: #64748b;
-            line-height: 1.4;
-        }
-
-        .mid-result-log {
-            padding: 6px;
-            margin: 2px 8px;
-            font-size: 11px;
-            color: #6b7280;
-            border-bottom: 1px solid #f1f5f9;
-        }
-
-        .mid-result-log:last-child {
-            border-bottom: none;
-        }
+      #mid-search-panel {
+        position: fixed; background: white; border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.12); z-index: 10000;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        width: 380px; overflow: hidden; border: 1px solid #e1e5e9;
+        animation: slideUpIn 0.3s ease-out;
+      }
+      @keyframes slideUpIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+      .mid-panel-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 12px 16px; display: flex; justify-content: space-between; align-items: center;
+      }
+      .mid-panel-title { color: white; font-size: 16px; font-weight: 700; margin: 0; }
+      .mid-panel-close {
+        background: rgba(255,255,255,0.2); border: none; color: white;
+        width: 28px; height: 28px; border-radius: 50%; display: flex;
+        align-items: center; justify-content: center; cursor: pointer; font-size: 16px;
+      }
+      .mid-panel-close:hover { background: rgba(255,255,255,0.3); }
+      .mid-panel-content { padding: 16px; background: #fafbfc; }
+      .mid-input-group { margin-bottom: 16px; }
+      .mid-input-label { display: block; margin-bottom: 8px; font-weight: 600; color: #2d3748; font-size: 14px; }
+      .mid-input-field {
+        width: 100%; padding: 12px 16px; border: 2px solid #e1e5e9; border-radius: 8px;
+        font-size: 14px; outline: none; background: white; box-sizing: border-box;
+      }
+      .mid-input-field:focus { border-color: #667eea; box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1); }
+      .mid-search-btn {
+        width: 100%; padding:
+              .mid-search-btn {
+        width: 100%; padding: 12px 16px; background: #000000; color: white;
+        border: none; border-radius: 8px; font-size: 14px; font-weight: 600;
+        cursor: pointer; transition: all 0.2s ease; box-sizing: border-box;
+      }
+      .mid-search-btn:hover:not(:disabled) { background: #333333; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+      .mid-search-btn:disabled { background: #666666; cursor: not-allowed; }
+      .mid-status { font-size: 13px; text-align: center; min-height: 18px; margin: 12px 0 0 0; padding: 8px; border-radius: 6px; font-weight: 500; }
+      .mid-status:empty { padding: 0; margin: 0; min-height: 0; }
+      .mid-status.info { background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; }
+      .mid-status.success { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+      .mid-status.error { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+      .mid-status.warning { background: #fffbeb; color: #d97706; border: 1px solid #fed7aa; }
+      .mid-results { max-height: 200px; overflow-y: auto; margin-top: 12px; border-radius: 6px; background: white; border: 1px solid #e1e5e9; }
+      .mid-results:empty { display: none !important; }
+      .mid-result-item { margin: 8px; padding: 12px; background: #f8fafc; border-radius: 6px; border-left: 3px solid #667eea; font-size: 12px; }
+      .mid-result-title { font-weight: 600; color: #1e293b; margin-bottom: 6px; }
+      .mid-result-details { color: #64748b; line-height: 1.4; }
+      .mid-result-log { padding: 6px; margin: 2px 8px; font-size: 11px; color: #6b7280; border-bottom: 1px solid #f1f5f9; }
+      .mid-result-log:last-child { border-bottom: none; }
     `);
 
-    // Create floating button
     function createFloatingButton() {
-        // Check if button already exists
-        if (document.getElementById('fnsku-mid-search-btn')) return;
+      if (document.getElementById('fnsku-mid-search-btn')) return;
 
-        const btn = document.createElement('button');
-        btn.id = 'fnsku-mid-search-btn';
-        btn.textContent = 'MID Search';
+      const btn = document.createElement('button');
+      btn.id = 'fnsku-mid-search-btn';
+      btn.textContent = 'MID Search';
+      btn.className = 'standard-floating-btn';
+      btn.style.bottom = '20px';
+      btn.style.right = '20px';
 
-        btn.className = 'standard-floating-btn';
-        btn.style.bottom = '20px';
-        btn.style.right = '20px';
-
-        btn.addEventListener('click', showMidSearchPanel);
-        document.body.appendChild(btn);
-
-        console.log('FNSKU MID Search: Floating button created');
+      btn.addEventListener('click', showMidSearchPanel);
+      document.body.appendChild(btn);
     }
 
-    // Create search panel - IMPROVED VERSION
     function showMidSearchPanel() {
-        // Remove existing panel if present
-        const existing = document.getElementById('mid-search-panel');
-        if (existing) {
-            existing.remove();
-            return;
-        }
+      const existing = document.getElementById('mid-search-panel');
+      if (existing) { existing.remove(); return; }
 
-        const panel = document.createElement('div');
-        panel.id = 'mid-search-panel';
+      const panel = document.createElement('div');
+      panel.id = 'mid-search-panel';
 
-        panel.innerHTML = `
-            <div class="mid-panel-header">
-                <span class="mid-panel-title">MID Search Tool</span>
-                <button class="mid-panel-close" id="close-mid-panel">&times;</button>
-            </div>
-            <div class="mid-panel-content">
-                <div class="mid-input-group">
-                    <label class="mid-input-label">Enter MID to Search:</label>
-                    <input type="text" id="mid-search-input" class="mid-input-field" placeholder="Paste MID here..." />
-                </div>
-                <button id="start-mid-search" class="mid-search-btn">
-                    Search All Pages
-                </button>
-                <div id="search-status" class="mid-status"></div>
-                <div id="search-results" class="mid-results" style="display: none;"></div>
-            </div>
-        `;
+      panel.innerHTML = `
+        <div class="mid-panel-header">
+          <span class="mid-panel-title">MID Search Tool</span>
+          <button class="mid-panel-close" id="close-mid-panel">&times;</button>
+        </div>
+        <div class="mid-panel-content">
+          <div class="mid-input-group">
+            <label class="mid-input-label">Enter MID to Search:</label>
+            <input type="text" id="mid-search-input" class="mid-input-field" placeholder="Paste MID here..." />
+          </div>
+          <button id="start-mid-search" class="mid-search-btn">Search All Pages</button>
+          <div id="search-status" class="mid-status"></div>
+          <div id="search-results" class="mid-results" style="display: none;"></div>
+        </div>
+      `;
 
-        // Position panel
-        Object.assign(panel.style, {
-            bottom: '80px',
-            right: '20px'
-        });
+      Object.assign(panel.style, { bottom: '80px', right: '20px' });
+      document.body.appendChild(panel);
 
-        document.body.appendChild(panel);
+      document.getElementById('close-mid-panel').onclick = () => panel.remove();
+      document.getElementById('start-mid-search').onclick = startMidSearch;
+      document.getElementById('mid-search-input').focus();
 
-        // Event listeners
-        document.getElementById('close-mid-panel').onclick = () => panel.remove();
-        document.getElementById('start-mid-search').onclick = startMidSearch;
-
-        // Focus input
-        document.getElementById('mid-search-input').focus();
-
-        // Enter key to start search
-        document.getElementById('mid-search-input').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && !isSearching) {
-                startMidSearch();
-            }
-        });
+      document.getElementById('mid-search-input').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && !isSearching) startMidSearch();
+      });
     }
 
     async function startMidSearch() {
-        if (isSearching) return;
+      if (isSearching) return;
 
-        const input = document.getElementById('mid-search-input');
-        const button = document.getElementById('start-mid-search');
-        const status = document.getElementById('search-status');
-        const results = document.getElementById('search-results');
+      const input = document.getElementById('mid-search-input');
+      const button = document.getElementById('start-mid-search');
+      const results = document.getElementById('search-results');
 
-        const searchMID = input.value.trim();
-        if (!searchMID) {
-            showStatus('Please enter a MID to search!', 'error');
-            return;
-        }
+      const searchMID = input.value.trim();
+      if (!searchMID) { showStatus('Please enter a MID to search!', 'error'); return; }
 
-        console.log('FNSKU MID Search: Starting search for:', searchMID);
+      isSearching = true;
+      button.disabled = true;
+      button.textContent = 'Searching...';
+      results.innerHTML = '';
+      results.style.display = 'none';
+      searchResults = [];
 
-        // Start search
-        isSearching = true;
-        button.disabled = true;
-        button.textContent = 'Searching...';
-        results.innerHTML = '';
-        results.style.display = 'none';
-        searchResults = [];
+      clearAllHighlights();
 
-        // Clear any previous highlights
-        clearAllHighlights();
+      try {
+        let pageCount = 0;
+        const maxPages = 200;
+        const searchMIDLower = searchMID.toLowerCase();
+        let found = false;
 
-        try {
-            let pageCount = 0;
-            const maxPages = 200;
-            const searchMIDLower = searchMID.toLowerCase();
-            let found = false;
+        showStatus('Searching pages...', 'info');
 
-            showStatus('Searching pages...', 'info');
+        while (pageCount < maxPages) {
+          pageCount++;
+          button.textContent = `Page ${pageCount}`;
 
-// Inside startMidSearch function, replace the while loop logic with:
-while (pageCount < maxPages) {
-    pageCount++;
-    button.textContent = `Page ${pageCount}`;
+          const pageResults = searchCurrentPage(searchMIDLower, pageCount);
 
-    // Search current page for matches
-    const pageResults = searchCurrentPage(searchMIDLower, pageCount);
+          if (pageResults.length > 0) {
+            const matchingResults = pageResults.filter(result => result.fnsku === result.asin);
 
-    if (pageResults.length > 0) {
-        // Found matches on current page - check for FNSKU/ASIN match
-        const matchingResults = pageResults.filter(result => result.fnsku === result.asin);
-
-        if (matchingResults.length > 0) {
-            // If there are any matching FNSKU/ASIN on this page, highlight those
-            searchResults = matchingResults;
-            matchingResults.forEach(result => {
-                highlightRow(result.element, result.mid);
-            });
-            scrollToElement(matchingResults[0].element);
-            addResultLine(`Page ${pageCount}: Found ${matchingResults.length} result(s) with matching FNSKU/ASIN!`);
-        } else {
-            // If no FNSKU/ASIN matches, highlight all results on the page
-            searchResults = pageResults;
-            pageResults.forEach(result => {
-                highlightRow(result.element, result.mid);
-            });
-            scrollToElement(pageResults[0].element);
-            addResultLine(`Page ${pageCount}: Found ${pageResults.length} result(s)`);
-        }
-
-        displayResults();
-        found = true;
-        break;
-    }
-
-
-
-    else {
-        addResultLine(`Page ${pageCount}: No matches`);
-
-        // Only proceed to next page if no results found
-        const nextBtn = findNextButton();
-        if (!nextBtn) {
-            console.log('FNSKU MID Search: No next button found - reached end of results');
-            break;
-        }
-
-        nextBtn.click();
-        const pageLoadSuccess = await waitForPageLoad(5000);
-        if (!pageLoadSuccess) {
-            console.log('FNSKU MID Search: Page load timeout');
-            addResultLine(`Page ${pageCount}: Page load timeout`);
-            break;
-        }
-
-        await new Promise(resolve => setTimeout(resolve, 800));
-    }
-}
-
-
-
-
-            // Final results
-            if (found) {
-                showStatus(`Found match on page ${pageCount}!`, 'success');
-                displayResults(true);
+            if (matchingResults.length > 0) {
+              searchResults = matchingResults;
+              matchingResults.forEach(result => highlightRow(result.element, result.mid));
+              scrollToElement(matchingResults[0].element);
+              addResultLine(`Page ${pageCount}: Found ${matchingResults.length} result(s) with matching FNSKU/ASIN!`);
             } else {
-                showStatus(`No matches found for "${searchMID}" across ${pageCount} pages.`, 'warning');
-                addResultLine(`Search completed - no matches found across ${pageCount} pages.`);
+              searchResults = pageResults;
+              pageResults.forEach(result => highlightRow(result.element, result.mid));
+              scrollToElement(pageResults[0].element);
+              addResultLine(`Page ${pageCount}: Found ${pageResults.length} result(s)`);
             }
 
-            if (pageCount >= maxPages) {
-                showStatus(`Search stopped at ${maxPages} page limit.`, 'warning');
-                addResultLine(`Reached maximum page limit of ${maxPages} pages.`);
-            }
+            displayResults();
+            found = true;
+            break;
+          } else {
+            addResultLine(`Page ${pageCount}: No matches`);
 
-        } catch (error) {
-            console.error('FNSKU MID Search: Error during search:', error);
-            showStatus('Error occurred during search. Check console for details.', 'error');
-            addResultLine(`Error: ${error.message}`);
-        } finally {
-            // Reset button
-            isSearching = false;
-            button.disabled = false;
-            button.textContent = 'Search All Pages';
+            const nextBtn = findNextButton();
+            if (!nextBtn) break;
+
+            nextBtn.click();
+            const pageLoadSuccess = await waitForPageLoad(5000);
+            if (!pageLoadSuccess) { addResultLine(`Page ${pageCount}: Page load timeout`); break; }
+
+            await new Promise(resolve => setTimeout(resolve, 800));
+          }
         }
+
+        if (found) {
+          showStatus(`Found match on page ${pageCount}!`, 'success');
+          displayResults(true);
+        } else {
+          showStatus(`No matches found for "${searchMID}" across ${pageCount} pages.`, 'warning');
+          addResultLine(`Search completed - no matches found across ${pageCount} pages.`);
+        }
+
+        if (pageCount >= maxPages) {
+          showStatus(`Search stopped at ${maxPages} page limit.`, 'warning');
+        }
+
+      } catch (error) {
+        console.error('FNSKU MID Search: Error during search:', error);
+        showStatus('Error occurred during search.', 'error');
+        addResultLine(`Error: ${error.message}`);
+      } finally {
+        isSearching = false;
+        button.disabled = false;
+        button.textContent = 'Search All Pages';
+      }
     }
 
     function searchCurrentPage(searchMIDLower, pageNumber) {
-        const results = [];
-        const tables = document.querySelectorAll('table');
+      const results = [];
+      const tables = document.querySelectorAll('table');
 
-        tables.forEach(table => {
-            const rows = table.querySelectorAll('tr');
-            rows.forEach((row, rowIndex) => {
-                // Skip header rows
-                if (rowIndex === 0) return;
+      tables.forEach(table => {
+        const rows = table.querySelectorAll('tr');
+        rows.forEach((row, rowIndex) => {
+          if (rowIndex === 0) return;
 
-                const cells = row.querySelectorAll('td');
+          const cells = row.querySelectorAll('td');
+          const fnsku = cells[2]?.textContent?.trim() || '';
+          const asin = cells[3]?.textContent?.trim() || '';
+          const merchantId = cells[0]?.textContent?.trim() || '';
+          const msku = cells[1]?.textContent?.trim() || '';
+          const condition = cells[4]?.textContent?.trim() || '';
+          const status = cells[5]?.textContent?.trim() || '';
 
-                // Extract FNSKU and ASIN from the row
-                const fnsku = cells[2]?.textContent?.trim() || '';
-                const asin = cells[3]?.textContent?.trim() || '';
-                const merchantId = cells[0]?.textContent?.trim() || '';
-                const msku = cells[1]?.textContent?.trim() || '';
-                const condition = cells[4]?.textContent?.trim() || '';
-                const status = cells[5]?.textContent?.trim() || '';
-
-                if (fnsku && asin && merchantId.toLowerCase().includes(searchMIDLower)){
-                    results.push({
-                        element: row,
-                        page: pageNumber,
-                        row: rowIndex,
-                        mid: searchMIDLower,
-                        merchantId,
-                        msku,
-                        fnsku,
-                        asin,
-                        condition,
-                        status,
-                        fullText: row.textContent.trim()
-                    });
-                }
+          if (fnsku && asin && merchantId.toLowerCase().includes(searchMIDLower)) {
+            results.push({
+              element: row, page: pageNumber, row: rowIndex, mid: searchMIDLower,
+              merchantId, msku, fnsku, asin, condition, status, fullText: row.textContent.trim()
             });
+          }
         });
+      });
 
-        return results;
+      return results;
     }
 
-    // Display functions with improved styling
     function displayResults(final = false) {
-        const resultsDiv = document.getElementById('search-results');
-        if (!resultsDiv) return;
+      const resultsDiv = document.getElementById('search-results');
+      if (!resultsDiv) return;
 
-        let html = '';
+      let html = '';
 
-        if (final && searchResults.length > 0) {
-            // Add match/mismatch information to the header
-            const fnskuAsinMatch = searchResults.some(r => r.fnsku === r.asin);
-            html += `<div class="mid-result-title" style="padding: 8px; margin: 8px; background: white; border-radius: 6px;">
-            Search Results (${searchResults.length} matches${fnskuAsinMatch ? ' with' : ' without'} same FNSKU/ASIN):</div>`;
-        }
+      if (final && searchResults.length > 0) {
+        const fnskuAsinMatch = searchResults.some(r => r.fnsku === r.asin);
+        html += `<div class="mid-result-title" style="padding: 8px; margin: 8px; background: white; border-radius: 6px;">
+          Search Results (${searchResults.length} matches${fnskuAsinMatch ? ' with' : ' without'} same FNSKU/ASIN):</div>`;
+      }
 
-        searchResults.forEach((result, index) => {
-            const fnskuAsinMatch = result.fnsku === result.asin;
-            html += `
-            <div class="mid-result-item">
-                <div class="mid-result-title">Match ${index + 1} (Page ${result.page})</div>
-                <div class="mid-result-details">
-                    <strong>Merchant:</strong> ${result.merchantId}<br>
-                    <strong>MSKU:</strong> ${result.msku}<br>
-                    <strong>FNSKU:</strong> ${result.fnsku}<br>
-                    <strong>ASIN:</strong> ${result.asin} ${fnskuAsinMatch ?
+      searchResults.forEach((result, index) => {
+        const fnskuAsinMatch = result.fnsku === result.asin;
+        html += `
+          <div class="mid-result-item">
+            <div class="mid-result-title">Match ${index + 1} (Page ${result.page})</div>
+            <div class="mid-result-details">
+              <strong>Merchant:</strong> ${result.merchantId}<br>
+              <strong>MSKU:</strong> ${result.msku}<br>
+              <strong>FNSKU:</strong> ${result.fnsku}<br>
+              <strong>ASIN:</strong> ${result.asin} ${fnskuAsinMatch ?
                 '<span style="color: green;">(matches FNSKU)</span>' :
-            '<span style="color: orange;">(different from FNSKU)</span>'}<br>
-                    <strong>Condition:</strong> ${result.condition}<br>
-                    <strong>Status:</strong> ${result.status}
-                </div>
+                '<span style="color: orange;">(different from FNSKU)</span>'}<br>
+              <strong>Condition:</strong> ${result.condition}<br>
+              <strong>Status:</strong> ${result.status}
             </div>
+          </div>
         `;
-        });
+      });
 
-        if (html) {
-            resultsDiv.innerHTML = html;
-            resultsDiv.style.display = 'block';
-        }
+      if (html) {
+        resultsDiv.innerHTML = html;
+        resultsDiv.style.display = 'block';
+      }
     }
 
-
-    // Helper functions
     function scrollToElement(element) {
-        if (element) {
-            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-            // Add a temporary highlight animation
-            element.style.transition = 'background-color 0.5s';
-            element.style.backgroundColor = '#ffff00';
-            setTimeout(() => {
-                element.style.backgroundColor = '';
-                setTimeout(() => {
-                    element.style.backgroundColor = '#ffff00';
-                }, 500);
-            }, 500);
-        }
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        element.style.transition = 'background-color 0.5s';
+        element.style.backgroundColor = '#ffff00';
+        setTimeout(() => {
+          element.style.backgroundColor = '';
+          setTimeout(() => { element.style.backgroundColor = '#ffff00'; }, 500);
+        }, 500);
+      }
     }
+
     function highlightRow(row, searchTerm) {
-        if (!row) return;
+      if (!row) return;
+      row.style.cssText += `background-color: #ffff00 !important; border: 3px solid #ff6b6b !important; box-shadow: 0 0 10px rgba(255, 107, 107, 0.5) !important;`;
+      row.classList.add('mid-search-highlight');
 
-        row.style.cssText += `
-            background-color: #ffff00 !important;
-            border: 3px solid #ff6b6b !important;
-            box-shadow: 0 0 10px rgba(255, 107, 107, 0.5) !important;
-        `;
-        row.classList.add('mid-search-highlight');
-
-        const cells = row.querySelectorAll('td');
-        cells.forEach(cell => {
-            const text = cell.textContent;
-            if (text.toLowerCase().includes(searchTerm)) {
-                cell.style.fontWeight = 'bold';
-                cell.style.textDecoration = 'underline';
-            }
-        });
+      const cells = row.querySelectorAll('td');
+      cells.forEach(cell => {
+        const text = cell.textContent;
+        if (text.toLowerCase().includes(searchTerm)) {
+          cell.style.fontWeight = 'bold';
+          cell.style.textDecoration = 'underline';
+        }
+      });
     }
 
     function clearAllHighlights() {
-        document.querySelectorAll('.mid-search-highlight').forEach(row => {
-            row.style.backgroundColor = '';
-            row.style.border = '';
-            row.style.boxShadow = '';
-            row.classList.remove('mid-search-highlight');
+      document.querySelectorAll('.mid-search-highlight').forEach(row => {
+        row.style.backgroundColor = '';
+        row.style.border = '';
+        row.style.boxShadow = '';
+        row.classList.remove('mid-search-highlight');
 
-            const cells = row.querySelectorAll('td');
-            cells.forEach(cell => {
-                cell.style.fontWeight = '';
-                cell.style.textDecoration = '';
-            });
+        const cells = row.querySelectorAll('td');
+        cells.forEach(cell => {
+          cell.style.fontWeight = '';
+          cell.style.textDecoration = '';
         });
+      });
     }
 
     function addResultLine(text) {
-        const resultsDiv = document.getElementById('search-results');
-        if (!resultsDiv) return;
+      const resultsDiv = document.getElementById('search-results');
+      if (!resultsDiv) return;
 
-        const line = document.createElement('div');
-        line.className = 'mid-result-log';
-        line.textContent = text;
-        resultsDiv.appendChild(line);
-        resultsDiv.style.display = 'block';
-        resultsDiv.scrollTop = resultsDiv.scrollHeight;
+      const line = document.createElement('div');
+      line.className = 'mid-result-log';
+      line.textContent = text;
+      resultsDiv.appendChild(line);
+      resultsDiv.style.display = 'block';
+      resultsDiv.scrollTop = resultsDiv.scrollHeight;
     }
 
     function showStatus(message, type = 'info') {
-        const statusDiv = document.getElementById('search-status');
-        if (!statusDiv) return;
-
-        statusDiv.textContent = message;
-        statusDiv.className = `mid-status ${type}`;
+      const statusDiv = document.getElementById('search-status');
+      if (!statusDiv) return;
+      statusDiv.textContent = message;
+      statusDiv.className = `mid-status ${type}`;
     }
 
-    // Enhanced findNextButton function with better detection:
     function findNextButton() {
-        // First try common pagination selectors
-        const selectors = [
-            'button[aria-label*="next" i]:not([disabled])',
-            'button[title*="next" i]:not([disabled])',
-            'a[aria-label*="next" i]:not(.disabled)',
-            'a[title*="next" i]:not(.disabled)',
-            '.pagination button:not([disabled]):not(.current)',
-            '.pagination a:not(.disabled):not(.active)',
-            '.pager button:not([disabled])',
-            '.pager a:not(.disabled)'
-        ];
+      const selectors = [
+        'button[aria-label*="next" i]:not([disabled])',
+        'button[title*="next" i]:not([disabled])',
+        'a[aria-label*="next" i]:not(.disabled)',
+        'a[title*="next" i]:not(.disabled)',
+        '.pagination button:not([disabled]):not(.current)',
+        '.pagination a:not(.disabled):not(.active)'
+      ];
 
-        for (const selector of selectors) {
-            const elements = document.querySelectorAll(selector);
-            for (const el of elements) {
-                if (el.offsetParent !== null &&
-                    window.getComputedStyle(el).display !== 'none' &&
-                    window.getComputedStyle(el).visibility !== 'hidden') {
-                    return el;
-                }
-            }
+      for (const selector of selectors) {
+        const elements = document.querySelectorAll(selector);
+        for (const el of elements) {
+          if (el.offsetParent !== null && window.getComputedStyle(el).display !== 'none' && window.getComputedStyle(el).visibility !== 'hidden') {
+            return el;
+          }
         }
+      }
 
-        // Then try text-based search
-        const clickableElements = document.querySelectorAll('button, a, [role="button"], input[type="button"], input[type="submit"]');
+      const clickableElements = document.querySelectorAll('button, a, [role="button"], input[type="button"], input[type="submit"]');
 
-        for (const el of clickableElements) {
-            const text = (el.textContent || el.value || '').toLowerCase().trim();
-            const nextWords = ['next', 'next page', '→', '>', 'continue', 'more'];
+      for (const el of clickableElements) {
+        const text = (el.textContent || el.value || '').toLowerCase().trim();
+        const nextWords = ['next', 'next page', '→', '>', 'continue', 'more'];
 
-            if (nextWords.some(word => text.includes(word))) {
-                // Make sure it's not a "previous" or "back" button
-                if (!text.includes('previous') && !text.includes('back') && !text.includes('prev')) {
-                    // Check if element is actually clickable and visible
-                    if (!el.disabled &&
-                        el.offsetParent !== null &&
-                        window.getComputedStyle(el).display !== 'none' &&
-                        window.getComputedStyle(el).visibility !== 'hidden' &&
-                        !el.classList.contains('disabled')) {
-
-                        return el;
-                    }
-                }
+        if (nextWords.some(word => text.includes(word))) {
+          if (!text.includes('previous') && !text.includes('back') && !text.includes('prev')) {
+            if (!el.disabled && el.offsetParent !== null && window.getComputedStyle(el).display !== 'none' &&
+                window.getComputedStyle(el).visibility !== 'hidden' && !el.classList.contains('disabled')) {
+              return el;
             }
+          }
         }
+      }
 
-        // No valid next button found
-        return null;
+      return null;
     }
 
-    // Enhanced waitForPageLoad function to return success indicator:
     async function waitForPageLoad(timeout = 5000) {
-        return new Promise(resolve => {
-            let attempts = 0;
-            const maxAttempts = timeout / 100;
-            let lastRowCount = -1;
-            let stableCount = 0;
+      return new Promise(resolve => {
+        let attempts = 0;
+        const maxAttempts = timeout / 100;
+        let lastRowCount = -1;
+        let stableCount = 0;
 
-            const checkInterval = setInterval(() => {
-                attempts++;
+        const checkInterval = setInterval(() => {
+          attempts++;
 
-                const currentRowCount = document.querySelectorAll('table tr').length;
-                const hasContent = currentRowCount > 1;
-                const noLoadingIndicator = !document.querySelector('.loading, .spinner, [aria-busy="true"], [aria-label*="loading" i]');
+          const currentRowCount = document.querySelectorAll('table tr').length;
+          const hasContent = currentRowCount > 1;
+          const noLoadingIndicator = !document.querySelector('.loading, .spinner, [aria-busy="true"], [aria-label*="loading" i]');
 
-                // Check if content has stabilized
-                if (currentRowCount === lastRowCount) {
-                    stableCount++;
-                } else {
-                    stableCount = 0;
-                }
+          if (currentRowCount === lastRowCount) {
+            stableCount++;
+          } else {
+            stableCount = 0;
+          }
 
-                const contentStabilized = stableCount >= 3; // Content stable for 3 checks (300ms)
+          const contentStabilized = stableCount >= 3;
 
-                if (hasContent && noLoadingIndicator && contentStabilized) {
-                    clearInterval(checkInterval);
-                    resolve(true); // Success
-                    return;
-                }
+          if (hasContent && noLoadingIndicator && contentStabilized) {
+            clearInterval(checkInterval);
+            resolve(true);
+            return;
+          }
 
-                if (attempts >= maxAttempts) {
-                    clearInterval(checkInterval);
-                    resolve(false); // Timeout
-                    return;
-                }
+          if (attempts >= maxAttempts) {
+            clearInterval(checkInterval);
+            resolve(false);
+            return;
+          }
 
-                lastRowCount = currentRowCount;
-            }, 100);
-        });
+          lastRowCount = currentRowCount;
+        }, 100);
+      });
     }
 
-    // Initialize floating button
     setTimeout(createFloatingButton, 2000);
     setTimeout(createFloatingButton, 5000);
 
-    // Observe for page changes
     const observer = new MutationObserver(() => {
-        if (!document.getElementById('fnsku-mid-search-btn')) {
-            createFloatingButton();
-        }
+      if (!document.getElementById('fnsku-mid-search-btn')) createFloatingButton();
     });
     observer.observe(document.body, { childList: true, subtree: true });
-}
+  }
 
+  /////////////////////////////////
+  // 7) Open RCAI                //
+  /////////////////////////////////
 
-/////////////////////////////////
-// 7) Open RCAI                //
-/////////////////////////////////
-
-if (isFeatureEnabled('openRCAI') && /paragon-.*\.amazon\.com\/ilac\/view-ilac-report/.test(location.href)) {
+  if (isFeatureEnabled('openRCAI') && /paragon-.*\.amazon\.com\/ilac\/view-ilac-report/.test(location.href)) {
 
     function addRCAIButton() {
-        // Find the Copy Shipment ID button
-        const buttons = Array.from(document.querySelectorAll('button'));
-        const copyShipmentBtn = buttons.find(btn =>
-            btn.textContent && btn.textContent.trim() === 'Copy Shipment ID'
-        );
+      const buttons = Array.from(document.querySelectorAll('button'));
+      const copyShipmentBtn = buttons.find(btn => btn.textContent && btn.textContent.trim() === 'Copy Shipment ID');
 
-        if (!copyShipmentBtn || document.getElementById('rcai-link-btn')) {
-            return;
+      if (!copyShipmentBtn || document.getElementById('rcai-link-btn')) return;
+
+      const rcaiBtn = document.createElement('button');
+      rcaiBtn.id = 'rcai-link-btn';
+      rcaiBtn.textContent = 'RCAI';
+      rcaiBtn.className = copyShipmentBtn.className;
+      rcaiBtn.style.cssText = copyShipmentBtn.style.cssText;
+      rcaiBtn.style.marginLeft = '10px';
+
+      rcaiBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const cells = document.querySelectorAll('td');
+        let shipmentId = '';
+
+        for (const cell of cells) {
+          const matches = cell.textContent.match(/FBA[A-Z0-9]{9}/g) || [];
+          for (const match of matches) {
+            if (match.length === 12) {
+              shipmentId = match;
+              break;
+            }
+          }
+          if (shipmentId) break;
         }
 
-        const rcaiBtn = document.createElement('button');
-        rcaiBtn.id = 'rcai-link-btn';
-        rcaiBtn.textContent = 'RCAI';
+        if (shipmentId) {
+          const rcaiUrl = `https://console.harmony.a2z.com/fba-mfi-rce/mfi-rca?shipmentId=${shipmentId}`;
+          window.open(rcaiUrl, '_blank');
+        } else {
+          alert('Could not find valid shipment ID');
+        }
+      });
 
-        // Copy styles from the existing button
-        rcaiBtn.className = copyShipmentBtn.className;
-        rcaiBtn.style.cssText = copyShipmentBtn.style.cssText;
-        rcaiBtn.style.marginLeft = '10px';
-
-        rcaiBtn.addEventListener('click', function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-
-            // Get all cells in the table
-            const cells = document.querySelectorAll('td');
-            let shipmentId = '';
-
-            // Look for FBA pattern in cells
-            for (const cell of cells) {
-                // Look for FBA pattern with 9 characters after it
-                const matches = cell.textContent.match(/FBA[A-Z0-9]{9}/g) || [];
-                for (const match of matches) {
-                    if (match.length === 12) { // FBA + 9 characters
-                        shipmentId = match;
-                        break;
-                    }
-                }
-                if (shipmentId) break;
-            }
-
-            if (shipmentId) {
-                console.log('Found shipment ID:', shipmentId);
-                const rcaiUrl = `https://console.harmony.a2z.com/fba-mfi-rce/mfi-rca?shipmentId=${shipmentId}`;
-                window.open(rcaiUrl, '_blank');
-            } else {
-                console.log('Could not find valid shipment ID');
-                alert('Could not find valid shipment ID');
-            }
-        });
-
-        copyShipmentBtn.parentNode.insertBefore(rcaiBtn, copyShipmentBtn.nextSibling);
-        console.log('RCAI button added successfully');
+      copyShipmentBtn.parentNode.insertBefore(rcaiBtn, copyShipmentBtn.nextSibling);
     }
 
-    // Add observer to handle dynamic content loading
     const rcaiObserver = new MutationObserver((mutations, observer) => {
-        if (!document.getElementById('rcai-link-btn')) {
-            addRCAIButton();
-        }
+      if (!document.getElementById('rcai-link-btn')) addRCAIButton();
     });
 
-    rcaiObserver.observe(document.body, {
-        childList: true,
-        subtree: true
-    });
+    rcaiObserver.observe(document.body, { childList: true, subtree: true });
 
-    // Initial checks with increasing delays
     setTimeout(addRCAIButton, 1000);
     setTimeout(addRCAIButton, 2000);
     setTimeout(addRCAIButton, 3000);
-}
+  }
 
+  /////////////////////////////////
+  // 8) ILAC Auto Attach         //
+  /////////////////////////////////
+
+  if (isFeatureEnabled('ilacAutoAttach') &&
+      (/paragon-.*\.amazon\.com\/hz\/view-case\?caseId=/.test(location.href) ||
+       /paragon-na\.amazon\.com\/hz\/case\?caseId=/.test(location.href))) {
+
+    function ilacGetCaseStatus() {
+      // Method 1: Find using kat-table structure
+      const rows = document.querySelectorAll('kat-table-body kat-table-row');
+
+      for (const row of rows) {
+        const cells = row.querySelectorAll('kat-table-cell');
+        if (cells.length >= 2) {
+          const label = cells[0]?.textContent?.trim();
+          const value = cells[1]?.textContent?.trim();
+
+          if (label === 'Status' || label === 'Status:') {
+            return value;
+          }
+        }
+      }
+
+      // Method 2: Direct XPath approach
+      try {
+        const statusCell = document.evaluate(
+          "//kat-table-cell[contains(text(),'Status')]/following-sibling::kat-table-cell[1]",
+          document,
+          null,
+          XPathResult.FIRST_ORDERED_NODE_TYPE,
+          null
+        ).singleNodeValue;
+
+        if (statusCell) {
+          return statusCell.textContent.trim();
+        }
+      } catch (e) {
+        console.log('[ILAC Auto Attach] XPath method failed:', e);
+      }
+
+      // Method 3: Find row containing "Status" and get next cell
+      const allCells = document.querySelectorAll('kat-table-cell');
+      for (let i = 0; i < allCells.length; i++) {
+        if (allCells[i].textContent.trim() === 'Status' && allCells[i + 1]) {
+          return allCells[i + 1].textContent.trim();
+        }
+      }
+
+      return null;
+    }
+
+    function ilacGetShipmentId() {
+      // Check multiple locations for shipment ID
+      const fromLink = $('a[href*=view-ilac-report]:last')?.[0]?.href?.match(/FBA[\w]+/)?.[0];
+      const fromHeader = $('#caseHeaderComponent').text()?.match(/FBA[\w]+/)?.[0];
+      const fromShipmentData = $('div:contains(SHIPMENT DATA):last').text()?.match(/FBA[\w]+/)?.[0];
+
+      return fromShipmentData || fromHeader || fromLink;
+    }
+
+    async function ilacGetReport(caseId, shipmentId) {
+      const url = `https://paragon-na.amazon.com/ilac/view-ilac-report?shipmentId=${shipmentId}&caseId=${caseId}&updatingSystem=paragon`;
+      return await ilacXhrPromise({ method: "GET", url: url });
+    }
+
+    async function ilacAttachReport(caseId, shipmentId) {
+      const ilacReportHtml = await ilacGetReport(caseId, shipmentId);
+
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = ilacReportHtml;
+      const reportSnapshot = tempDiv.querySelector('#reportSnapshot')?.value || '';
+
+      const data = $.param({
+        "tenantId": unsafeWindow.tenantId,
+        "caseId": caseId,
+        "notes": "",
+        "updatingSystem": "",
+        "problemReceiveReport": "undefined",
+        "reportSnapshot": reportSnapshot,
+        "asinStatReport": `{"asinStatReport":[]}`,
+        "deliveryDate": "undefined",
+        "jsonBolReport": "undefined"
+      });
+
+      const response = await ilacXhrPromise({
+        method: "POST",
+        url: "https://paragon-na.amazon.com/ilac/attach-ilac-report",
+        data: data,
+        headers: { "Content-Type": "application/x-www-form-urlencoded" }
+      });
+
+      return JSON.parse(response);
+    }
+
+    function ilacXhrPromise({ method, url, headers, data }) {
+      return new Promise((resolve, reject) => {
+        GM_xmlhttpRequest({
+          method: method,
+          url: url,
+          data: data,
+          headers: {
+            ...headers,
+            "pgn-csrf-token": unsafeWindow.csrfToken,
+            "case-tenant-id": unsafeWindow.tenantId
+          },
+          onload: (response) => resolve(response.responseText),
+          onerror: (error) => reject(error)
+        });
+      });
+    }
+
+    function ilacShowNotification(message, type) {
+      const bgColor = type === "success" ? "#4CAF50" : "#f44336";
+
+      const notification = document.createElement('div');
+      notification.innerHTML = message;
+      notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: ${bgColor};
+        color: white;
+        padding: 15px 25px;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: bold;
+        z-index: 99999;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      `;
+
+      document.body.appendChild(notification);
+
+      setTimeout(() => {
+        notification.remove();
+      }, 5000);
+    }
+
+    function ilacAutoAttachMain() {
+      const loadPage = setInterval(async () => {
+        const caseId = unsafeWindow?.caseId;
+        const caseStatus = ilacGetCaseStatus();
+
+        if (caseId && caseStatus) {
+          clearInterval(loadPage);
+
+          console.log(`[ILAC Auto Attach] Detected status: "${caseStatus}"`);
+
+          // Check if status is Work-in-Progress
+          if (caseStatus !== 'Work-in-Progress') {
+            console.log(`[ILAC Auto Attach] Status is not Work-in-Progress. Skipping.`);
+            return;
+          }
+
+          console.log(`[ILAC Auto Attach] Status is Work-in-Progress. Proceeding...`);
+
+          try {
+            let attempts = 0;
+            const maxAttempts = 30;
+
+            const findShipmentInterval = setInterval(async () => {
+              attempts++;
+              const shipmentId = ilacGetShipmentId();
+
+              if (shipmentId) {
+                clearInterval(findShipmentInterval);
+                console.log(`[ILAC Auto Attach] Found shipment: ${shipmentId}`);
+
+                const result = await ilacAttachReport(caseId, shipmentId);
+
+                if (result?.results?.data?.success) {
+                  console.log(`[ILAC Auto Attach] Report attached successfully!`);
+                  ilacShowNotification("✅ ILAC Report attached successfully!", "success");
+                } else {
+                  console.error(`[ILAC Auto Attach] Failed:`, result?.results?.data?.message);
+                  ilacShowNotification("❌ Failed to attach ILAC Report", "error");
+                }
+              } else if (attempts >= maxAttempts) {
+                clearInterval(findShipmentInterval);
+                console.log("[ILAC Auto Attach] No shipment ID found on page");
+              }
+            }, 500);
+
+          } catch (e) {
+            console.error("[ILAC Auto Attach] Error:", e);
+          }
+        }
+      }, 100);
+    }
+
+    // Initialize ILAC Auto Attach
+    ilacAutoAttachMain();
+  }
 
 })();
