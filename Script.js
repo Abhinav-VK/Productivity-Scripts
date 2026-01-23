@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     6.3.0
+// @version     6.3.1
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -104,7 +104,7 @@
     panel.innerHTML = `
       <div class="toggle-header">
         <span class="toggle-title">Script Features</span>
-        <button id="close-toggle-panel" class="close-btn">&times;</button>
+        <button id="close-toggle-panel" class="close-btn">✕</button>
       </div>
       <div class="toggle-content">
         ${Object.entries(FEATURES).map(([key, feature]) => `
