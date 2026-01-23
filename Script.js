@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     6.1.0
+// @version     6.3.0
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -1217,137 +1217,495 @@
 
 
 
-  //////////////////////////////////
-  // 4) Serenity ID Extractor     //
-  //////////////////////////////////
 
-  if (isFeatureEnabled('serenityExtractor') &&
-      /moonraker-na\.aka\.amazon\.com\/serenity\/open/.test(location.href)) {
+    //////////////////////////////////
+// 4) Serenity ID Extractor     //
+//////////////////////////////////
 
-    function toYMD(str) {
-      const p = str.split('/');
-      if (p.length !== 3) return null;
-      const [mm, dd, yyyy] = p;
-      return `${yyyy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}`;
+if (isFeatureEnabled('serenityExtractor') &&
+    /moonraker-na\.aka\.amazon\.com\/serenity\/open/.test(location.href)) {
+
+  let isExtracting = false;
+
+  // Add styles for Serenity panel
+  GM_addStyle(`
+    #serenity-extract-panel {
+      position: fixed;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+      z-index: 10000;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      width: 400px;
+      overflow: hidden;
+      border: 1px solid #e1e5e9;
+      animation: serenitySlideIn 0.3s ease-out;
     }
 
-    function addDays(dateStr, days) {
-      const date = new Date(dateStr + 'T00:00:00');
-      date.setDate(date.getDate() + days);
-      return date.toISOString().split('T')[0];
+    @keyframes serenitySlideIn {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
     }
 
-    function extractFromCurrentPage(startDate, endDate) {
-      const rows = document.querySelectorAll('table tr');
-      const map = new Map();
-
-      rows.forEach(r => {
-        const cells = r.querySelectorAll('td');
-        let uid = null;
-
-        cells.forEach(c => {
-          const m = c.textContent.trim().match(/\b[A-Za-z0-9]{55,}\b/);
-          if (m) uid = m[0];
-        });
-
-        if (!uid) return;
-
-        const dm = r.textContent.match(/\b(\d{4}-\d{2}-\d{2})\b/);
-        if (!dm) return;
-
-        const ds = dm[1];
-        if (ds < startDate || ds > endDate) return;
-
-        let qty = 0;
-        cells.forEach(c => {
-          const m = c.textContent.trim().match(/^\d+$/);
-          if (m) qty = parseInt(m[0], 10);
-        });
-
-        map.set(uid, (map.get(uid) || 0) + qty);
-      });
-
-      return map;
+    .serenity-panel-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
     }
 
-    function waitForPageLoad() {
-      return new Promise((resolve) => {
-        let attempts = 0;
-        const maxAttempts = 50;
-
-        const checkInterval = setInterval(() => {
-          attempts++;
-          const hasContent = document.querySelectorAll('table tr').length > 1;
-
-          if (hasContent || attempts >= maxAttempts) {
-            clearInterval(checkInterval);
-            setTimeout(resolve, 200);
-          }
-        }, 200);
-      });
+    .serenity-panel-title {
+      color: white;
+      font-size: 16px;
+      font-weight: 700;
+      margin: 0;
     }
 
-    async function extractSerenityIDs() {
-      const inp = prompt('Enter First Receive Date or Delivery Date');
-      if (!inp) return;
-
-      const startDate = toYMD(inp.trim());
-      if (!startDate) return alert('Invalid date format. Use MM/DD/YYYY');
-
-      const endDate = addDays(startDate, 46);
-      const allResults = new Map();
-      let pageCount = 1;
-      const maxPages = 50;
-
-      btn.textContent = `Processing Page ${pageCount}...`;
-      btn.disabled = true;
-
-      while (pageCount <= maxPages) {
-        const pageResults = extractFromCurrentPage(startDate, endDate);
-
-        pageResults.forEach((qty, uid) => {
-          allResults.set(uid, (allResults.get(uid) || 0) + qty);
-        });
-
-        const nextBatchBtn = Array.from(document.querySelectorAll('button, a, input[type="button"], input[type="submit"], span'))
-          .find(el => {
-            const text = (el.textContent || el.value || '').toLowerCase().trim();
-            return text.includes('get next batch') || text.includes('next batch') || text.includes('get next') || (text.includes('next') && text.includes('batch'));
-          });
-
-        if (!nextBatchBtn || nextBatchBtn.disabled || nextBatchBtn.style.display === 'none' ||
-            nextBatchBtn.offsetParent === null || window.getComputedStyle(nextBatchBtn).display === 'none') {
-          break;
-        }
-
-        pageCount++;
-        btn.textContent = `Processing Page ${pageCount}...`;
-        nextBatchBtn.click();
-        await waitForPageLoad();
-      }
-
-      btn.textContent = 'Extract Serenity IDs';
-      btn.disabled = false;
-
-      if (!allResults.size) {
-        return alert(`No Serenity IDs found between ${startDate} and ${endDate} (45 days across ${pageCount} pages)`);
-      }
-
-      const ids = Array.from(allResults.keys()).join(',');
-      const total = Array.from(allResults.values()).reduce((a, b) => a + b, 0);
-
-      GM_setClipboard(ids);
-      alert(`Copied ${allResults.size} Serenity ID(s) from ${startDate} to ${endDate} across ${pageCount} pages. Total Quantity: ${total}`);
+    .serenity-panel-close {
+      background: rgba(255,255,255,0.2);
+      border: none;
+      color: white;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: bold;
+      line-height: 1;
+      transition: background 0.2s ease;
     }
 
-    const btn = document.createElement('button');
-    btn.className = 'standard-floating-btn';
-    btn.textContent = 'Extract Serenity IDs';
-    btn.style.bottom = '20px';
-    btn.style.right = '20px';
-    btn.addEventListener('click', extractSerenityIDs);
-    document.body.appendChild(btn);
+    .serenity-panel-close:hover {
+      background: rgba(255,255,255,0.3);
+    }
+
+    .serenity-panel-content {
+      padding: 16px;
+      background: #fafbfc;
+    }
+
+    .serenity-input-group {
+      margin-bottom: 16px;
+    }
+
+    .serenity-input-label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 600;
+      color: #2d3748;
+      font-size: 14px;
+    }
+
+    .serenity-input-hint {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 12px;
+      color: #718096;
+    }
+
+    .serenity-input-field {
+      width: 100%;
+      padding: 12px 16px;
+      border: 2px solid #e1e5e9;
+      border-radius: 8px;
+      font-size: 14px;
+      outline: none;
+      transition: all 0.2s ease;
+      background: white;
+      font-family: inherit;
+      box-sizing: border-box;
+    }
+
+    .serenity-input-field:focus {
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
+    .serenity-extract-btn {
+      width: 100%;
+      padding: 12px 16px;
+      background: #000000;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      font-family: inherit;
+      box-sizing: border-box;
+    }
+
+    .serenity-extract-btn:hover:not(:disabled) {
+      background: #333333;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    .serenity-extract-btn:disabled {
+      background: #666666;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .serenity-status {
+      font-size: 13px;
+      text-align: center;
+      min-height: 18px;
+      margin: 12px 0 0 0;
+      padding: 10px;
+      border-radius: 6px;
+      font-weight: 500;
+      display: none;
+    }
+
+    .serenity-status.visible {
+      display: block;
+    }
+
+    .serenity-status.info {
+      background: #dbeafe;
+      color: #1e40af;
+      border: 1px solid #bfdbfe;
+    }
+
+    .serenity-status.success {
+      background: #dcfce7;
+      color: #166534;
+      border: 1px solid #bbf7d0;
+    }
+
+    .serenity-status.error {
+      background: #fef2f2;
+      color: #dc2626;
+      border: 1px solid #fecaca;
+    }
+
+    .serenity-status.warning {
+      background: #fffbeb;
+      color: #d97706;
+      border: 1px solid #fed7aa;
+    }
+
+    .serenity-results {
+      margin-top: 12px;
+      padding: 12px;
+      background: white;
+      border-radius: 8px;
+      border: 1px solid #e1e5e9;
+      display: none;
+    }
+
+    .serenity-results.visible {
+      display: block;
+    }
+
+    .serenity-results-title {
+      font-weight: 600;
+      color: #2d3748;
+      margin-bottom: 8px;
+      font-size: 13px;
+    }
+
+    .serenity-results-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .serenity-stat-item {
+      background: #f8fafc;
+      padding: 8px 12px;
+      border-radius: 6px;
+      border-left: 3px solid #667eea;
+    }
+
+    .serenity-stat-label {
+      font-size: 11px;
+      color: #718096;
+      text-transform: uppercase;
+    }
+
+    .serenity-stat-value {
+      font-size: 16px;
+      font-weight: 700;
+      color: #2d3748;
+    }
+
+    .serenity-copied-badge {
+      display: inline-block;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      margin-top: 8px;
+    }
+  `);
+
+  function toYMD(str) {
+    const p = str.split('/');
+    if (p.length !== 3) return null;
+    const [mm, dd, yyyy] = p;
+    return `${yyyy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}`;
   }
+
+  function addDays(dateStr, days) {
+    const date = new Date(dateStr + 'T00:00:00');
+    date.setDate(date.getDate() + days);
+    return date.toISOString().split('T')[0];
+  }
+
+  function extractFromCurrentPage(startDate, endDate) {
+    const rows = document.querySelectorAll('table tr');
+    const map = new Map();
+
+    rows.forEach(r => {
+      const cells = r.querySelectorAll('td');
+      let uid = null;
+
+      cells.forEach(c => {
+        const m = c.textContent.trim().match(/\b[A-Za-z0-9]{55,}\b/);
+        if (m) uid = m[0];
+      });
+
+      if (!uid) return;
+
+      const dm = r.textContent.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+      if (!dm) return;
+
+      const ds = dm[1];
+      if (ds < startDate || ds > endDate) return;
+
+      let qty = 0;
+      cells.forEach(c => {
+        const m = c.textContent.trim().match(/^\d+$/);
+        if (m) qty = parseInt(m[0], 10);
+      });
+
+      map.set(uid, (map.get(uid) || 0) + qty);
+    });
+
+    return map;
+  }
+
+  function waitForPageLoad() {
+    return new Promise((resolve) => {
+      let attempts = 0;
+      const maxAttempts = 50;
+
+      const checkInterval = setInterval(() => {
+        attempts++;
+        const hasContent = document.querySelectorAll('table tr').length > 1;
+
+        if (hasContent || attempts >= maxAttempts) {
+          clearInterval(checkInterval);
+          setTimeout(resolve, 200);
+        }
+      }, 200);
+    });
+  }
+
+  function showSerenityPanel() {
+    const existing = document.getElementById('serenity-extract-panel');
+    if (existing) {
+      existing.remove();
+      return;
+    }
+
+    const panel = document.createElement('div');
+    panel.id = 'serenity-extract-panel';
+
+    panel.innerHTML = `
+      <div class="serenity-panel-header">
+        <span class="serenity-panel-title">Serenity ID Extractor</span>
+        <button class="serenity-panel-close" id="close-serenity-panel">✕</button>
+      </div>
+      <div class="serenity-panel-content">
+        <div class="serenity-input-group">
+          <label class="serenity-input-label">First Receive Date / Delivery Date</label>
+          <span class="serenity-input-hint">Format: MM/DD/YYYY (e.g., 01/15/2025)</span>
+          <input type="text" id="serenity-date-input" class="serenity-input-field" placeholder="MM/DD/YYYY" />
+        </div>
+        <button id="start-serenity-extract" class="serenity-extract-btn">Extract Serenity IDs</button>
+        <div id="serenity-status" class="serenity-status"></div>
+        <div id="serenity-results" class="serenity-results">
+          <div class="serenity-results-title">Extraction Results</div>
+          <div class="serenity-results-stats">
+            <div class="serenity-stat-item">
+              <div class="serenity-stat-label">IDs Found</div>
+              <div class="serenity-stat-value" id="serenity-count">0</div>
+            </div>
+            <div class="serenity-stat-item">
+              <div class="serenity-stat-label">Total Qty</div>
+              <div class="serenity-stat-value" id="serenity-qty">0</div>
+            </div>
+            <div class="serenity-stat-item">
+              <div class="serenity-stat-label">Pages Scanned</div>
+              <div class="serenity-stat-value" id="serenity-pages">0</div>
+            </div>
+            <div class="serenity-stat-item">
+              <div class="serenity-stat-label">Date Range</div>
+              <div class="serenity-stat-value" id="serenity-range" style="font-size:11px;">-</div>
+            </div>
+          </div>
+          <div style="text-align:center;">
+            <span class="serenity-copied-badge" id="serenity-copied-badge" style="display:none;">✓ Copied to Clipboard</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    Object.assign(panel.style, { bottom: '80px', right: '20px', position: 'fixed' });
+    document.body.appendChild(panel);
+
+    document.getElementById('close-serenity-panel').onclick = () => panel.remove();
+    document.getElementById('start-serenity-extract').onclick = startExtraction;
+
+    const input = document.getElementById('serenity-date-input');
+    input.focus();
+    input.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter' && !isExtracting) startExtraction();
+    });
+  }
+
+  function showStatus(message, type = 'info') {
+    const statusDiv = document.getElementById('serenity-status');
+    if (!statusDiv) return;
+    statusDiv.textContent = message;
+    statusDiv.className = `serenity-status visible ${type}`;
+  }
+
+  function hideStatus() {
+    const statusDiv = document.getElementById('serenity-status');
+    if (statusDiv) {
+      statusDiv.className = 'serenity-status';
+    }
+  }
+
+  function showResults(count, total, pages, startDate, endDate) {
+    const resultsDiv = document.getElementById('serenity-results');
+    if (!resultsDiv) return;
+
+    document.getElementById('serenity-count').textContent = count;
+    document.getElementById('serenity-qty').textContent = total;
+    document.getElementById('serenity-pages').textContent = pages;
+    document.getElementById('serenity-range').textContent = `${startDate} to ${endDate}`;
+
+    resultsDiv.className = 'serenity-results visible';
+
+    const badge = document.getElementById('serenity-copied-badge');
+    if (badge) {
+      badge.style.display = 'inline-block';
+    }
+  }
+
+  function hideResults() {
+    const resultsDiv = document.getElementById('serenity-results');
+    if (resultsDiv) {
+      resultsDiv.className = 'serenity-results';
+    }
+    const badge = document.getElementById('serenity-copied-badge');
+    if (badge) {
+      badge.style.display = 'none';
+    }
+  }
+
+  async function startExtraction() {
+    if (isExtracting) return;
+
+    const input = document.getElementById('serenity-date-input');
+    const button = document.getElementById('start-serenity-extract');
+    const inp = input?.value?.trim();
+
+    if (!inp) {
+      showStatus('Please enter a date', 'error');
+      return;
+    }
+
+    const startDate = toYMD(inp);
+    if (!startDate) {
+      showStatus('Invalid date format. Use MM/DD/YYYY', 'error');
+      return;
+    }
+
+    isExtracting = true;
+    button.disabled = true;
+    hideResults();
+
+    const endDate = addDays(startDate, 46);
+    const allResults = new Map();
+    let pageCount = 1;
+    const maxPages = 50;
+
+    showStatus(`Processing Page ${pageCount}...`, 'info');
+    button.textContent = `Processing Page ${pageCount}...`;
+
+    while (pageCount <= maxPages) {
+      const pageResults = extractFromCurrentPage(startDate, endDate);
+
+      pageResults.forEach((qty, uid) => {
+        allResults.set(uid, (allResults.get(uid) || 0) + qty);
+      });
+
+      const nextBatchBtn = Array.from(document.querySelectorAll('button, a, input[type="button"], input[type="submit"], span'))
+        .find(el => {
+          const text = (el.textContent || el.value || '').toLowerCase().trim();
+          return text.includes('get next batch') || text.includes('next batch') || text.includes('get next') || (text.includes('next') && text.includes('batch'));
+        });
+
+      if (!nextBatchBtn || nextBatchBtn.disabled || nextBatchBtn.style.display === 'none' ||
+          nextBatchBtn.offsetParent === null || window.getComputedStyle(nextBatchBtn).display === 'none') {
+        break;
+      }
+
+      pageCount++;
+      showStatus(`Processing Page ${pageCount}...`, 'info');
+      button.textContent = `Processing Page ${pageCount}...`;
+      nextBatchBtn.click();
+      await waitForPageLoad();
+    }
+
+    button.textContent = 'Extract Serenity IDs';
+    button.disabled = false;
+    isExtracting = false;
+
+    if (!allResults.size) {
+      showStatus(`No Serenity IDs found between ${startDate} and ${endDate} (45 days across ${pageCount} pages)`, 'warning');
+      return;
+    }
+
+    const ids = Array.from(allResults.keys()).join(',');
+    const total = Array.from(allResults.values()).reduce((a, b) => a + b, 0);
+
+    GM_setClipboard(ids);
+
+    showStatus('Extraction complete!', 'success');
+    showResults(allResults.size, total, pageCount, startDate, endDate);
+  }
+
+  const btn = document.createElement('button');
+  btn.className = 'standard-floating-btn';
+  btn.textContent = 'Extract Serenity IDs';
+  btn.style.bottom = '20px';
+  btn.style.right = '20px';
+  btn.addEventListener('click', showSerenityPanel);
+  document.body.appendChild(btn);
+}
+
+
+
+
+
+
+
 
   /////////////////////////////////
   // 5) SANTOS Checker           //
@@ -1551,20 +1909,21 @@
         }
 
         .mid-panel-close {
-            background: rgba(255,255,255,0.2);
-            border: none;
-            color: white;
-            width: 28px;
-            height: 28px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            font-size: 16px;
-            line-height: 1;
-            transition: background 0.2s ease;
-        }
+    background: rgba(255,255,255,0.2);
+    border: none;
+    color: white;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 18px;
+    font-weight: bold;
+    line-height: 1;
+    transition: background 0.2s ease;
+}
 
         .mid-panel-close:hover {
             background: rgba(255,255,255,0.3);
@@ -1741,7 +2100,7 @@
       panel.innerHTML = `
         <div class="mid-panel-header">
           <span class="mid-panel-title">MID Search Tool</span>
-          <button class="mid-panel-close" id="close-mid-panel">&times;</button>
+          <button class="mid-panel-close" id="close-mid-panel">✕</button>
         </div>
         <div class="mid-panel-content">
           <div class="mid-input-group">
@@ -2137,5 +2496,969 @@
   scripts.forEach(s => s.remove());
   return temp.innerHTML;
 }
+
+
+
+    /////////////////////////////////
+// 8) ILAC Auto Attach (FIXED) //
+/////////////////////////////////
+
+if (isFeatureEnabled('ilacAutoAttach') &&
+    (/paragon-.*\.amazon\.com\/hz\/view-case\?caseId=/.test(location.href) ||
+     /paragon-na\.amazon\.com\/hz\/case\?caseId=/.test(location.href))) {
+
+  console.log('[ILAC] Module loaded - checking page...');
+
+  let ILAC_CANCEL_ATTACHMENT = false;
+  const ILAC_SESSION_KEY = 'ilac_attached_cases';
+
+  function ilacGetSessionAttachedCases() {
+    try {
+      return JSON.parse(sessionStorage.getItem(ILAC_SESSION_KEY) || '{}');
+    } catch {
+      return {};
+    }
+  }
+
+  function ilacMarkCaseAsAttached(caseId) {
+    const attached = ilacGetSessionAttachedCases();
+    attached[caseId] = Date.now();
+    sessionStorage.setItem(ILAC_SESSION_KEY, JSON.stringify(attached));
+  }
+
+  function ilacWasAttachedThisSession(caseId) {
+    const attached = ilacGetSessionAttachedCases();
+    return !!attached[caseId];
+  }
+
+  // Toast styles - matching toggle panel theme
+  GM_addStyle(`
+    #ilac-auto-attach-toasts {
+      position: fixed;
+      top: 10px;
+      right: 20px;
+      z-index: 99999;
+      min-width: 450px;
+      max-width: 550px;
+    }
+
+    .ilac-toast {
+      display: flex;
+      flex-direction: column;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(102, 126, 234, 0.25);
+      margin-bottom: 12px;
+      overflow: hidden;
+      animation: ilacSlideIn 0.3s ease-out;
+      border: 1px solid #e1e5e9;
+    }
+
+    @keyframes ilacSlideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    .ilac-toast-header {
+      display: flex;
+      align-items: center;
+      padding: 12px 16px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .ilac-toast-header .icon {
+      margin-right: 10px;
+      font-size: 18px;
+      filter: brightness(0) invert(1);
+    }
+
+    .ilac-toast-header .title {
+      font-weight: 700;
+      color: white;
+      flex-grow: 1;
+      font-size: 14px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    .ilac-toast-header .close-btn {
+      background: rgba(255,255,255,0.2);
+      border: none;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      cursor: pointer;
+      color: white;
+      line-height: 1;
+      transition: background 0.2s ease;
+    }
+
+    .ilac-toast-header .close-btn:hover {
+      background: rgba(255,255,255,0.3);
+    }
+
+    .ilac-toast-body {
+      padding: 16px;
+      color: #2d3748;
+      font-size: 14px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #fafbfc;
+      line-height: 1.5;
+    }
+
+    .ilac-toast-footer {
+      display: flex;
+      justify-content: flex-end;
+      padding: 12px 16px;
+      background: white;
+      border-top: 1px solid #e1e5e9;
+      gap: 10px;
+    }
+
+    .ilac-cancel-btn {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 8px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      transition: all 0.2s ease;
+    }
+
+    .ilac-cancel-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+
+    .ilac-shipment-list {
+      margin-top: 10px;
+      padding: 12px;
+      background: white;
+      border-radius: 8px;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 12px;
+      border: 1px solid #e1e5e9;
+    }
+
+    .ilac-shipment-item {
+      padding: 6px 0;
+      border-bottom: 1px solid #f0f0f0;
+      color: #667eea;
+      font-weight: 500;
+    }
+
+    .ilac-shipment-item:last-child {
+      border-bottom: none;
+    }
+
+    /* Status indicator styles */
+    .ilac-toast.success .ilac-toast-header {
+      background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+    }
+
+    .ilac-toast.danger .ilac-toast-header {
+      background: linear-gradient(135deg, #fc8181 0%, #e53e3e 100%);
+    }
+
+    .ilac-toast.warning .ilac-toast-header {
+      background: linear-gradient(135deg, #f6ad55 0%, #dd6b20 100%);
+    }
+
+    .ilac-toast.info .ilac-toast-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+
+    /* Status badge in body */
+    .ilac-status-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .ilac-toast.success .ilac-status-badge {
+      background: rgba(72, 187, 120, 0.15);
+      color: #2f855a;
+    }
+
+    .ilac-toast.danger .ilac-status-badge {
+      background: rgba(229, 62, 62, 0.15);
+      color: #c53030;
+    }
+
+    .ilac-toast.warning .ilac-status-badge {
+      background: rgba(221, 107, 32, 0.15);
+      color: #c05621;
+    }
+
+    .ilac-toast.info .ilac-status-badge {
+      background: rgba(102, 126, 234, 0.15);
+      color: #5a67d8;
+    }
+
+    /* Shipment ID highlight */
+    .ilac-shipment-id {
+      font-family: 'Consolas', 'Monaco', monospace;
+      background: rgba(102, 126, 234, 0.1);
+      padding: 2px 8px;
+      border-radius: 4px;
+      color: #667eea;
+      font-weight: 600;
+    }
+
+    /* Progress indicator */
+    .ilac-progress {
+      height: 3px;
+      background: rgba(102, 126, 234, 0.2);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-top: 12px;
+    }
+
+    .ilac-progress-bar {
+      height: 100%;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border-radius: 2px;
+      animation: ilacProgress 2s ease-in-out infinite;
+    }
+
+    @keyframes ilacProgress {
+      0% { width: 0%; margin-left: 0%; }
+      50% { width: 50%; margin-left: 25%; }
+      100% { width: 0%; margin-left: 100%; }
+    }
+  `);
+
+  function ilacCreateToastContainer() {
+    if (!document.getElementById('ilac-auto-attach-toasts')) {
+      const container = document.createElement('div');
+      container.id = 'ilac-auto-attach-toasts';
+      document.body.appendChild(container);
+    }
+  }
+
+  function ilacCreateToast({ type, message, cancelBtn = false, autoDismiss = false, duration = 5000, showProgress = false }) {
+    ilacCreateToastContainer();
+
+    const titles = {
+      success: 'Success',
+      danger: 'Error',
+      info: 'ILAC Auto Attach',
+      warning: 'Warning'
+    };
+
+    const toastId = 'ilac-toast-' + Date.now();
+
+    const toast = document.createElement('div');
+    toast.id = toastId;
+    toast.className = `ilac-toast ${type}`;
+
+    const progressHtml = showProgress ? '<div class="ilac-progress"><div class="ilac-progress-bar"></div></div>' : '';
+
+    toast.innerHTML = `
+      <div class="ilac-toast-header">
+        <span class="title">${titles[type] || 'ILAC Auto Attach'}</span>
+        <button class="close-btn" onclick="this.closest('.ilac-toast').remove()">&times;</button>
+      </div>
+      <div class="ilac-toast-body">
+        ${message}
+        ${progressHtml}
+      </div>
+      ${cancelBtn ? `
+        <div class="ilac-toast-footer">
+          <button class="ilac-cancel-btn" id="ilac-cancel-${toastId}">Cancel</button>
+        </div>
+      ` : ''}
+    `;
+
+    document.getElementById('ilac-auto-attach-toasts').appendChild(toast);
+
+    if (cancelBtn) {
+      const cancelButton = document.getElementById(`ilac-cancel-${toastId}`);
+      if (cancelButton) {
+        cancelButton.onclick = () => {
+          ILAC_CANCEL_ATTACHMENT = true;
+        };
+      }
+    }
+
+    if (autoDismiss) {
+      setTimeout(() => {
+        const el = document.getElementById(toastId);
+        if (el) {
+          el.style.animation = 'ilacSlideIn 0.3s ease-out reverse';
+          setTimeout(() => el.remove(), 280);
+        }
+      }, duration);
+    }
+
+    return toastId;
+  }
+
+  function ilacRemoveToasts() {
+    const container = document.getElementById('ilac-auto-attach-toasts');
+    if (container) container.innerHTML = '';
+  }
+
+  function ilacXhrPromise({ method, url, headers = {}, data }) {
+    return new Promise((resolve, reject) => {
+      const csrfToken = unsafeWindow?.csrfToken || window?.csrfToken;
+      const tenantId = unsafeWindow?.tenantId || window?.tenantId;
+
+      console.log('[ILAC] XHR Request:', method, url.split('?')[0]);
+
+      GM_xmlhttpRequest({
+        method: method,
+        url: url,
+        data: data,
+        headers: {
+          ...headers,
+          "pgn-csrf-token": csrfToken,
+          "case-tenant-id": tenantId
+        },
+        onload: (response) => {
+          console.log('[ILAC] XHR Response status:', response.status);
+          if (response.status >= 200 && response.status < 300) {
+            resolve(response.responseText);
+          } else {
+            reject(new Error(`HTTP ${response.status}: ${response.statusText}`));
+          }
+        },
+        onerror: (error) => {
+          console.error('[ILAC] XHR Error:', error);
+          reject(error);
+        }
+      });
+    });
+  }
+
+  async function ilacGetCaseHistory(caseId) {
+    try {
+      const response = await ilacXhrPromise({
+        method: "GET",
+        url: `https://paragon-na.amazon.com/hz/api/case/history/get?caseId=${caseId}`
+      });
+      const parsed = JSON.parse(response);
+      console.log('[ILAC] Case history entries:', parsed?.entries?.length || 0);
+      return parsed;
+    } catch (e) {
+      console.error("[ILAC] Failed to get case history:", e);
+      return null;
+    }
+  }
+
+  async function ilacGetCaseAttachments(caseId) {
+    try {
+      const response = await ilacXhrPromise({
+        method: "GET",
+        url: `https://paragon-na.amazon.com/hz/api/get-all-related-items?caseId=${caseId}`
+      });
+      const parsed = JSON.parse(response);
+      console.log('[ILAC] Case attachments - Reports:', parsed?.Report?.length || 0);
+      return parsed;
+    } catch (e) {
+      console.error("[ILAC] Failed to get case attachments:", e);
+      return null;
+    }
+  }
+
+  function ilacGetCurrentOwnerFromHistory(caseHistory, userId) {
+    console.log('[ILAC] Looking for owner in case history...');
+
+    if (!caseHistory || !caseHistory.entries || caseHistory.entries.length === 0) {
+      console.log('[ILAC] No history entries found');
+      return null;
+    }
+
+    const entries = caseHistory.entries;
+
+    for (const entry of entries) {
+      if (entry?.newState?.owner) {
+        console.log('[ILAC] Found owner via newState.owner:', entry.newState.owner);
+        return entry.newState.owner;
+      }
+
+      if (entry?.owner) {
+        console.log('[ILAC] Found owner via entry.owner:', entry.owner);
+        return entry.owner;
+      }
+
+      if (entry?.state?.owner) {
+        console.log('[ILAC] Found owner via state.owner:', entry.state.owner);
+        return entry.state.owner;
+      }
+
+      if (entry?.currentState?.owner) {
+        console.log('[ILAC] Found owner via currentState.owner:', entry.currentState.owner);
+        return entry.currentState.owner;
+      }
+    }
+
+    console.log('[ILAC] No explicit owner found, checking user activity...');
+
+    const mostRecentEntry = entries[0];
+    if (mostRecentEntry?.updatedBy === userId) {
+      console.log('[ILAC] User is the most recent updater:', userId);
+
+      const assignOps = ['reassignCase', 'assignCase', 'takeOwnership', 'assign', 'reassign'];
+      if (assignOps.some(op => mostRecentEntry.operation?.toLowerCase().includes(op.toLowerCase()))) {
+        console.log('[ILAC] User recently assigned case to themselves');
+        return userId;
+      }
+    }
+
+    for (let i = 0; i < Math.min(entries.length, 10); i++) {
+      const entry = entries[i];
+      if (entry?.updatedBy === userId) {
+        const op = (entry.operation || '').toLowerCase();
+        if (op.includes('assign') || op.includes('owner') || op.includes('take')) {
+          console.log('[ILAC] Found user assignment in recent history:', entry.operation);
+          return userId;
+        }
+      }
+    }
+
+    console.log('[ILAC] Could not determine owner from history');
+    return null;
+  }
+
+  function ilacGetCaseOwnerFromPage() {
+    console.log('[ILAC] Trying to get owner from DOM (fallback)...');
+
+    const rows = document.querySelectorAll('kat-table-body kat-table-row');
+    for (const row of rows) {
+      const cells = row.querySelectorAll('kat-table-cell');
+      if (cells.length >= 2) {
+        const label = cells[0]?.textContent?.trim();
+        if (label === 'Owner' || label === 'Case Owner') {
+          const owner = cells[1]?.textContent?.trim();
+          if (owner && owner.length > 0 && owner.length < 30) {
+            console.log('[ILAC] Found owner from DOM (method 1):', owner);
+            return owner;
+          }
+        }
+      }
+    }
+
+    const allCells = document.querySelectorAll('kat-table-cell, td, th');
+    for (let i = 0; i < allCells.length - 1; i++) {
+      const text = allCells[i].textContent.trim();
+      if (text === 'Owner' || text === 'Case Owner') {
+        const nextCell = allCells[i + 1];
+        const owner = nextCell?.textContent?.trim();
+        if (owner && owner.length > 0 && owner.length < 30 && /^[a-z0-9_-]+$/i.test(owner)) {
+          console.log('[ILAC] Found owner from DOM (method 2):', owner);
+          return owner;
+        }
+      }
+    }
+
+    console.log('[ILAC] Could not find owner from DOM');
+    return null;
+  }
+
+  function ilacIsValidCaseToAttachReport(userId, caseId, caseHistory, caseAttachments) {
+    console.log('[ILAC] === VALIDATION START ===');
+    console.log('[ILAC] User ID:', userId);
+    console.log('[ILAC] Case ID:', caseId);
+
+    if (ilacWasAttachedThisSession(caseId)) {
+      console.log('[ILAC] ❌ SKIP: Already attached in this browser session');
+      return false;
+    }
+
+    const allReports = caseAttachments?.Report || [];
+    const userReports = allReports.filter(r => r?.associatingAgent === userId);
+    console.log('[ILAC] Total attachments:', allReports.length);
+    console.log('[ILAC] User\'s attachments:', userReports.length);
+
+    const hasNoPreviousAttachments = userReports.length === 0;
+
+    let currentOwner = ilacGetCurrentOwnerFromHistory(caseHistory, userId);
+
+    if (!currentOwner) {
+      currentOwner = ilacGetCaseOwnerFromPage();
+    }
+
+    console.log('[ILAC] Current owner determined:', currentOwner);
+    console.log('[ILAC] Current user:', userId);
+
+    if (currentOwner && currentOwner !== userId) {
+      console.log('[ILAC] ❌ SKIP: User does not own case');
+      console.log(`[ILAC]    Owner: "${currentOwner}", User: "${userId}"`);
+      return false;
+    }
+
+    if (currentOwner === userId) {
+      console.log('[ILAC] ✓ User owns the case');
+    } else if (hasNoPreviousAttachments) {
+      const userActivity = caseHistory?.entries?.filter(e => e?.updatedBy === userId) || [];
+      console.log('[ILAC] User activity entries:', userActivity.length);
+
+      if (userActivity.length > 0) {
+        const recentActivity = userActivity[0];
+        const activityAge = Date.now() - (recentActivity.updatingDate || 0);
+        const oneHour = 60 * 60 * 1000;
+
+        console.log('[ILAC] Most recent user activity:', recentActivity.operation);
+        console.log('[ILAC] Activity age (minutes):', Math.round(activityAge / 60000));
+
+        if (activityAge < oneHour) {
+          console.log('[ILAC] ✓ User has recent activity on this case (within 1 hour)');
+        } else {
+          console.log('[ILAC] ⚠️ User has activity but it\'s old, proceeding anyway since no previous attachments');
+        }
+      } else {
+        console.log('[ILAC] ❌ SKIP: No user activity found on this case');
+        return false;
+      }
+    } else {
+      console.log('[ILAC] ❌ SKIP: Could not verify ownership and user has previous attachments');
+      return false;
+    }
+
+    if (hasNoPreviousAttachments) {
+      console.log('[ILAC] ✅ VALID: No previous attachments by user');
+      return true;
+    }
+
+    userReports.sort((a, b) => (b.associationDate || 0) - (a.associationDate || 0));
+    const lastAttachmentDate = userReports[0]?.associationDate || 0;
+    console.log('[ILAC] Last attachment date:', new Date(lastAttachmentDate).toISOString());
+
+    let ownershipDate = 0;
+    if (caseHistory && caseHistory.entries) {
+      for (const entry of caseHistory.entries) {
+        if (entry?.newState?.owner === userId ||
+            entry?.owner === userId ||
+            (entry?.updatedBy === userId && entry?.operation?.toLowerCase().includes('assign'))) {
+          ownershipDate = entry.updatingDate || 0;
+          console.log('[ILAC] Ownership/assignment date:', new Date(ownershipDate).toISOString());
+          break;
+        }
+      }
+    }
+
+    if (ownershipDate === 0) {
+      console.log('[ILAC] ⚠️ Could not find ownership timestamp');
+      console.log('[ILAC] ❌ SKIP: User has existing attachments, being cautious');
+      return false;
+    }
+
+    if (ownershipDate > lastAttachmentDate) {
+      console.log('[ILAC] ✅ VALID: Ownership is newer than last attachment');
+      return true;
+    }
+
+    console.log('[ILAC] ❌ SKIP: Already attached since last ownership change');
+    return false;
+  }
+
+  function ilacIsValidShipmentId(id) {
+    if (!id || typeof id !== 'string') return false;
+    return /^FBA[A-Z0-9]{7,12}$/i.test(id);
+  }
+
+  function ilacGetAllShipmentIds() {
+    console.log('[ILAC] Looking for all shipment IDs...');
+    const foundIds = new Set();
+
+    const ilacLinks = document.querySelectorAll('a[href*="view-ilac-report"]');
+    console.log('[ILAC] Found ILAC links:', ilacLinks.length);
+
+    ilacLinks.forEach((link, index) => {
+      const href = link.href || '';
+      console.log(`[ILAC] Link ${index} href:`, href);
+
+      const urlMatch = href.match(/shipmentId=(FBA[A-Z0-9]{7,12})/i);
+      if (urlMatch && urlMatch[1]) {
+        console.log('[ILAC] Found from URL param:', urlMatch[1]);
+        foundIds.add(urlMatch[1].toUpperCase());
+      }
+
+      const fbaMatches = href.match(/FBA[A-Z0-9]{7,12}/gi);
+      if (fbaMatches) {
+        fbaMatches.forEach(id => {
+          if (ilacIsValidShipmentId(id)) {
+            console.log('[ILAC] Found FBA pattern in URL:', id);
+            foundIds.add(id.toUpperCase());
+          }
+        });
+      }
+    });
+
+    const caseHeader = document.getElementById('caseHeaderComponent');
+    if (caseHeader) {
+      const headerText = caseHeader.textContent || caseHeader.innerText || '';
+      const headerMatches = headerText.match(/FBA[A-Z0-9]{7,12}/gi);
+      if (headerMatches) {
+        headerMatches.forEach(id => {
+          if (ilacIsValidShipmentId(id)) {
+            console.log('[ILAC] Found in header:', id);
+            foundIds.add(id.toUpperCase());
+          }
+        });
+      }
+    }
+
+    const tableCells = document.querySelectorAll('kat-table-cell, td');
+    tableCells.forEach(cell => {
+      const text = cell.textContent || cell.innerText || '';
+      const cellMatches = text.match(/FBA[A-Z0-9]{7,12}/gi);
+      if (cellMatches) {
+        cellMatches.forEach(id => {
+          if (ilacIsValidShipmentId(id)) {
+            foundIds.add(id.toUpperCase());
+          }
+        });
+      }
+    });
+
+    if (foundIds.size === 0) {
+      const pageText = document.body.innerText || document.body.textContent || '';
+      const pageMatches = pageText.match(/FBA[A-Z0-9]{7,12}/gi);
+      if (pageMatches) {
+        pageMatches.forEach(id => {
+          if (ilacIsValidShipmentId(id)) {
+            foundIds.add(id.toUpperCase());
+          }
+        });
+      }
+    }
+
+    const uniqueIds = Array.from(foundIds);
+    console.log('[ILAC] All unique valid shipment IDs found:', uniqueIds);
+    return uniqueIds;
+  }
+
+  function ilacGetShipmentId() {
+    const allIds = ilacGetAllShipmentIds();
+
+    if (allIds.length === 0) {
+      console.log('[ILAC] ❌ No valid shipment IDs found on page');
+      return { id: null, allIds: [], multipleFound: false };
+    }
+
+    if (allIds.length === 1) {
+      console.log('[ILAC] ✓ Single shipment ID found:', allIds[0]);
+      return { id: allIds[0], allIds: allIds, multipleFound: false };
+    }
+
+    console.log('[ILAC] ⚠️ Multiple different shipment IDs found:', allIds);
+    return { id: allIds[0], allIds: allIds, multipleFound: true };
+  }
+
+  async function ilacGetReport(caseId, shipmentId) {
+    console.log('[ILAC] Fetching ILAC report for shipment:', shipmentId);
+    const url = `https://paragon-na.amazon.com/ilac/view-ilac-report?shipmentId=${shipmentId}&caseId=${caseId}&updatingSystem=paragon`;
+    return await ilacXhrPromise({
+      method: "GET",
+      url: url
+    });
+  }
+
+  function ilacSerializeParams(obj) {
+    const params = new URLSearchParams();
+    for (const key in obj) {
+      if (Object.prototype.hasOwnProperty.call(obj, key)) {
+        params.append(key, obj[key]);
+      }
+    }
+    return params.toString();
+  }
+
+  async function ilacAttachReport(caseId, shipmentId) {
+    console.log('[ILAC] Starting attachment process for:', shipmentId);
+
+    if (!ilacIsValidShipmentId(shipmentId)) {
+      throw new Error(`Invalid shipment ID format: "${shipmentId}"`);
+    }
+
+    const ilacReportHtml = await ilacGetReport(caseId, shipmentId);
+    console.log('[ILAC] Report HTML received, length:', ilacReportHtml?.length || 0);
+
+    if (!ilacReportHtml || ilacReportHtml.length < 100) {
+      throw new Error('Failed to fetch ILAC report - empty or too short response');
+    }
+
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = ilacReportHtml;
+
+    const reportSnapshotEl = tempDiv.querySelector('#reportSnapshot');
+    const reportSnapshot = reportSnapshotEl?.value || '';
+
+    console.log('[ILAC] Report snapshot element found:', !!reportSnapshotEl);
+    console.log('[ILAC] Report snapshot length:', reportSnapshot.length);
+
+    if (!reportSnapshot || reportSnapshot.length === 0) {
+      console.log('[ILAC] Report snapshot empty, trying alternatives...');
+
+      const errorDiv = tempDiv.querySelector('.error, .alert, [class*="error"]');
+      if (errorDiv) {
+        const errorText = errorDiv.textContent || 'Unknown error in report';
+        throw new Error(`ILAC Report error: ${errorText}`);
+      }
+
+      const inputElements = tempDiv.querySelectorAll('input[type="hidden"]');
+      console.log('[ILAC] Hidden inputs found:', inputElements.length);
+      inputElements.forEach((inp, i) => {
+        console.log(`[ILAC] Input ${i}: id="${inp.id}", name="${inp.name}", value length=${inp.value?.length || 0}`);
+      });
+
+      throw new Error(`Could not extract report snapshot. The shipment ID "${shipmentId}" may be invalid or the report is not available.`);
+    }
+
+    const tenantId = unsafeWindow?.tenantId || window?.tenantId;
+
+    const requestData = {
+      "tenantId": tenantId,
+      "caseId": caseId,
+      "notes": "",
+      "updatingSystem": "",
+      "problemReceiveReport": "undefined",
+      "reportSnapshot": reportSnapshot,
+      "asinStatReport": '{"asinStatReport":[]}',
+      "deliveryDate": "undefined",
+      "jsonBolReport": "undefined"
+    };
+
+    const data = ilacSerializeParams(requestData);
+    console.log('[ILAC] Sending attach request...');
+
+    const response = await ilacXhrPromise({
+      method: "POST",
+      url: "https://paragon-na.amazon.com/ilac/attach-ilac-report",
+      data: data,
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    });
+
+    console.log('[ILAC] Attach response received, length:', response?.length || 0);
+
+    try {
+      const result = JSON.parse(response);
+      console.log('[ILAC] Parsed response:', JSON.stringify(result).substring(0, 200));
+      return result;
+    } catch (e) {
+      console.error('[ILAC] Failed to parse attach response:', e);
+      console.log('[ILAC] Raw response:', response?.substring(0, 500));
+      throw new Error('Invalid response from attach endpoint');
+    }
+  }
+
+  // MAIN FUNCTION
+  async function ilacAutoAttachMain() {
+    console.log('[ILAC] Auto Attach Main started');
+
+    let checkCount = 0;
+    const maxChecks = 100;
+
+    const loadInterval = setInterval(async () => {
+      checkCount++;
+
+      const caseId = unsafeWindow?.caseId || window?.caseId;
+      const userId = unsafeWindow?.userDetails?.agentLogin || window?.userDetails?.agentLogin;
+
+      if (checkCount % 20 === 0) {
+        console.log(`[ILAC] Waiting for page data... (attempt ${checkCount})`);
+      }
+
+      if (checkCount >= maxChecks) {
+        clearInterval(loadInterval);
+        console.log('[ILAC] ❌ Timed out waiting for page data');
+        return;
+      }
+
+      if (!caseId || !userId) return;
+
+      clearInterval(loadInterval);
+      console.log(`[ILAC] ✓ Page data loaded - Case: ${caseId}, User: ${userId}`);
+
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      try {
+        console.log('[ILAC] Fetching case history and attachments...');
+
+        const [caseHistory, caseAttachments] = await Promise.all([
+          ilacGetCaseHistory(caseId),
+          ilacGetCaseAttachments(caseId)
+        ]);
+
+        if (!caseHistory) {
+          console.log('[ILAC] ❌ Failed to fetch case history - aborting');
+          return;
+        }
+
+        const isValid = ilacIsValidCaseToAttachReport(userId, caseId, caseHistory, caseAttachments);
+
+        if (!isValid) {
+          console.log('[ILAC] Case not eligible for auto-attach');
+          return;
+        }
+
+        console.log('[ILAC] ✓ Case is valid for auto-attach, looking for shipment ID...');
+
+        ilacCreateToast({
+          type: "info",
+          message: `Searching for ILAC Report...<br><span class="ilac-shipment-id">Case: ${caseId}</span>`,
+          cancelBtn: true,
+          showProgress: true
+        });
+
+        let attempts = 0;
+        const maxAttempts = 40;
+
+        const shipmentInterval = setInterval(async () => {
+          attempts++;
+
+          if (ILAC_CANCEL_ATTACHMENT) {
+            clearInterval(shipmentInterval);
+            ilacRemoveToasts();
+            ilacCreateToast({
+              type: "info",
+              message: "Attachment cancelled by user",
+              autoDismiss: true
+            });
+            ILAC_CANCEL_ATTACHMENT = false;
+            return;
+          }
+
+          const shipmentResult = ilacGetShipmentId();
+
+          if (shipmentResult.id || attempts >= maxAttempts) {
+            clearInterval(shipmentInterval);
+
+            if (!shipmentResult.id) {
+              ilacRemoveToasts();
+              console.log('[ILAC] ❌ No valid shipment ID found after', attempts, 'attempts');
+              ilacCreateToast({
+                type: "danger",
+                message: `No valid shipment ID found on page.<br><br><em>Expected format: FBA + 7-12 characters</em>`,
+                autoDismiss: true,
+                duration: 7000
+              });
+              return;
+            }
+
+            if (shipmentResult.multipleFound) {
+              ilacRemoveToasts();
+              const idList = shipmentResult.allIds.map(id => `<div class="ilac-shipment-item">${id}</div>`).join('');
+              console.log('[ILAC] ⚠️ Multiple shipment IDs found, showing warning');
+              ilacCreateToast({
+                type: "warning",
+                message: `<strong>Multiple shipment IDs detected!</strong><br><br>
+                         Attaching: <span class="ilac-shipment-id">${shipmentResult.id}</span><br><br>
+                         All IDs found:<div class="ilac-shipment-list">${idList}</div>
+                         <em style="font-size:12px; color:#666;">Cancel within 3 seconds if incorrect</em>`,
+                cancelBtn: true,
+                autoDismiss: false
+              });
+
+              await new Promise(resolve => setTimeout(resolve, 3000));
+
+              if (ILAC_CANCEL_ATTACHMENT) {
+                ilacRemoveToasts();
+                ilacCreateToast({ type: "info", message: "Attachment cancelled by user", autoDismiss: true });
+                ILAC_CANCEL_ATTACHMENT = false;
+                return;
+              }
+            }
+
+            const shipmentId = shipmentResult.id;
+            console.log(`[ILAC] ✓ Using shipment ID: ${shipmentId}`);
+
+            ilacRemoveToasts();
+            ilacCreateToast({
+              type: "info",
+              message: `Attaching report...<br><span class="ilac-shipment-id">${shipmentId}</span>`,
+              showProgress: true
+            });
+
+            try {
+              const result = await ilacAttachReport(caseId, shipmentId);
+              ilacRemoveToasts();
+
+              const isSuccess = result?.results?.data?.success ||
+                               result?.success ||
+                               result?.status === 'success' ||
+                               (result?.results?.data?.message && result.results.data.message.toLowerCase().includes('success'));
+
+              if (isSuccess) {
+                ilacMarkCaseAsAttached(caseId);
+                console.log('[ILAC] ✅ Report attached successfully!');
+
+                let successMsg = `<span class="ilac-status-badge">Attached</span><br>
+                                  Report successfully attached!<br><br>
+                                  <span class="ilac-shipment-id">${shipmentId}</span>`;
+
+                if (shipmentResult.multipleFound) {
+                  successMsg += `<br><br><em style="font-size:12px; color:#666;">Note: ${shipmentResult.allIds.length - 1} other shipment ID(s) were not attached.</em>`;
+                }
+
+                ilacCreateToast({
+                  type: "success",
+                  message: successMsg,
+                  autoDismiss: true,
+                  duration: 7000
+                });
+              } else {
+                const errorMsg = result?.results?.data?.message ||
+                                result?.message ||
+                                result?.error ||
+                                'Unknown error - check console';
+                console.error('[ILAC] ❌ Attach failed:', errorMsg);
+                console.error('[ILAC] Full result:', JSON.stringify(result, null, 2));
+                ilacCreateToast({
+                  type: "danger",
+                  message: `<span class="ilac-status-badge">Failed</span><br>
+                           Could not attach report<br><br>
+                           <span class="ilac-shipment-id">${shipmentId}</span><br><br>
+                           <em>${errorMsg}</em>`,
+                  autoDismiss: true,
+                  duration: 7000
+                });
+              }
+            } catch (e) {
+              ilacRemoveToasts();
+              console.error('[ILAC] ❌ Error during attach:', e);
+              ilacCreateToast({
+                type: "danger",
+                message: `<span class="ilac-status-badge">Error</span><br>
+                         ${e.message}`,
+                autoDismiss: true,
+                duration: 7000
+              });
+            }
+          }
+        }, 500);
+
+      } catch (e) {
+        console.error('[ILAC] ❌ Main error:', e);
+        ilacRemoveToasts();
+        ilacCreateToast({
+          type: "danger",
+          message: `<span class="ilac-status-badge">Error</span><br>${e.message}`,
+          autoDismiss: true
+        });
+      }
+    }, 50);
+  }
+
+  // Start
+  ilacAutoAttachMain();
+}
+
+
+
 
 })();
