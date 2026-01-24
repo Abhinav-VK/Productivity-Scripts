@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     6.3.1
+// @version     6.4.0
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -564,8 +564,8 @@
           return;
         }
 
-        detailsButtons.forEach((el, i) => {
-          setTimeout(() => el.click(), i * 300);
+        detailsButtons.forEach(function(el, i) {
+            setTimeout(function() { el.click(); }, i * 300);
         });
 
         setTimeout(() => {
@@ -1727,11 +1727,11 @@ if (isFeatureEnabled('serenityExtractor') &&
       `;
       notification.textContent = message;
       document.body.appendChild(notification);
-      setTimeout(() => notification.style.opacity = '1', 10);
-      setTimeout(() => {
-        notification.style.opacity = '0';
-        setTimeout(() => notification.remove(), 300);
-      }, 5000);
+        setTimeout(function() { notification.style.opacity = '1'; }, 10);
+        setTimeout(function() {
+            notification.style.opacity = '0';
+            setTimeout(function() { notification.remove(); }, 300);
+        }, 5000);
     }
 
     async function extractMIDFromCopyButton() {
@@ -1834,11 +1834,11 @@ if (isFeatureEnabled('serenityExtractor') &&
       `;
       notification.textContent = message;
       document.body.appendChild(notification);
-      setTimeout(() => notification.style.opacity = '1', 10);
-      setTimeout(() => {
-        notification.style.opacity = '0';
-        setTimeout(() => notification.remove(), 300);
-      }, 3000);
+        setTimeout(function() { notification.style.opacity = '1'; }, 10);
+        setTimeout(function() {
+            notification.style.opacity = '0';
+            setTimeout(function() { notification.remove(); }, 300);
+        }, 3000);
     }
 
     setTimeout(() => {
@@ -2485,17 +2485,15 @@ if (isFeatureEnabled('serenityExtractor') &&
     setTimeout(addRCAIButton, 3000);
   }
 
-  function ilacSanitizeHTML(html) {
-  if (typeof DOMPurify !== 'undefined') {
-    return DOMPurify.sanitize(html);
-  }
-  // Fallback to basic sanitization
-  const temp = document.createElement('div');
-  temp.innerHTML = html;
-  const scripts = temp.querySelectorAll('script');
-  scripts.forEach(s => s.remove());
-  return temp.innerHTML;
-}
+    function ilacSanitizeHTML(html) {
+        // Basic sanitization - remove script tags
+        const temp = document.createElement('div');
+        temp.textContent = ''; // Clear first
+        temp.innerHTML = html;
+        const scripts = temp.querySelectorAll('script, iframe, object, embed');
+        scripts.forEach(function(s) { s.remove(); });
+        return temp.innerHTML;
+    }
 
 
 
@@ -2534,13 +2532,13 @@ if (isFeatureEnabled('ilacAutoAttach') &&
   // Toast styles - matching toggle panel theme
   GM_addStyle(`
     #ilac-auto-attach-toasts {
-      position: fixed;
-      top: 10px;
-      right: 20px;
-      z-index: 99999;
-      min-width: 450px;
-      max-width: 550px;
-    }
+  position: fixed;
+  top: 10px;
+  right: 20px;
+  z-index: 99999;
+  min-width: 380px;
+  max-width: 450px;
+}
 
     .ilac-toast {
       display: flex;
@@ -2560,13 +2558,12 @@ if (isFeatureEnabled('ilacAutoAttach') &&
     }
 
     .ilac-toast-header {
-      display: flex;
-      align-items: center;
-      padding: 12px 16px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      border-bottom: 1px solid rgba(255,255,255,0.1);
-    }
-
+  display: flex;
+  align-items: center;
+  padding: 8px 14px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
     .ilac-toast-header .icon {
       margin-right: 10px;
       font-size: 18px;
@@ -2601,14 +2598,14 @@ if (isFeatureEnabled('ilacAutoAttach') &&
       background: rgba(255,255,255,0.3);
     }
 
-    .ilac-toast-body {
-      padding: 16px;
-      color: #2d3748;
-      font-size: 14px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #fafbfc;
-      line-height: 1.5;
-    }
+.ilac-toast-body {
+  padding: 10px 14px;
+  color: #2d3748;
+  font-size: 13px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #fafbfc;
+  line-height: 1.4;
+}
 
     .ilac-toast-footer {
       display: flex;
@@ -2675,15 +2672,15 @@ if (isFeatureEnabled('ilacAutoAttach') &&
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     }
 
-    /* Status badge in body */
-    .ilac-status-badge {
-      display: inline-block;
-      padding: 4px 12px;
-      border-radius: 20px;
-      font-size: 12px;
-      font-weight: 600;
-      margin-bottom: 8px;
-    }
+    //* Status badge in body */
+.ilac-status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-right: 8px;
+}
 
     .ilac-toast.success .ilac-status-badge {
       background: rgba(72, 187, 120, 0.15);
@@ -2871,63 +2868,27 @@ if (isFeatureEnabled('ilacAutoAttach') &&
     }
   }
 
-  function ilacGetCurrentOwnerFromHistory(caseHistory, userId) {
-    console.log('[ILAC] Looking for owner in case history...');
+    function ilacGetCurrentOwner() {
+    console.log('[ILAC] Looking for case owner...');
 
-    if (!caseHistory || !caseHistory.entries || caseHistory.entries.length === 0) {
-      console.log('[ILAC] No history entries found');
-      return null;
+    // Method 1: From deprecated_getViewCaseData (most reliable)
+    try {
+      const caseData = (unsafeWindow?.deprecated_getViewCaseData || window?.deprecated_getViewCaseData)?.();
+      if (caseData?.caseDetails?.owner) {
+        console.log('[ILAC] Found owner from caseDetails:', caseData.caseDetails.owner);
+        return caseData.caseDetails.owner;
+      }
+    } catch (e) {
+      console.log('[ILAC] Error getting owner from caseDetails:', e);
     }
 
-    const entries = caseHistory.entries;
-
-    for (const entry of entries) {
-      if (entry?.newState?.owner) {
-        console.log('[ILAC] Found owner via newState.owner:', entry.newState.owner);
-        return entry.newState.owner;
-      }
-
-      if (entry?.owner) {
-        console.log('[ILAC] Found owner via entry.owner:', entry.owner);
-        return entry.owner;
-      }
-
-      if (entry?.state?.owner) {
-        console.log('[ILAC] Found owner via state.owner:', entry.state.owner);
-        return entry.state.owner;
-      }
-
-      if (entry?.currentState?.owner) {
-        console.log('[ILAC] Found owner via currentState.owner:', entry.currentState.owner);
-        return entry.currentState.owner;
-      }
+    // Method 2: Try to get from DOM
+    const ownerFromDOM = ilacGetCaseOwnerFromPage();
+    if (ownerFromDOM) {
+      return ownerFromDOM;
     }
 
-    console.log('[ILAC] No explicit owner found, checking user activity...');
-
-    const mostRecentEntry = entries[0];
-    if (mostRecentEntry?.updatedBy === userId) {
-      console.log('[ILAC] User is the most recent updater:', userId);
-
-      const assignOps = ['reassignCase', 'assignCase', 'takeOwnership', 'assign', 'reassign'];
-      if (assignOps.some(op => mostRecentEntry.operation?.toLowerCase().includes(op.toLowerCase()))) {
-        console.log('[ILAC] User recently assigned case to themselves');
-        return userId;
-      }
-    }
-
-    for (let i = 0; i < Math.min(entries.length, 10); i++) {
-      const entry = entries[i];
-      if (entry?.updatedBy === userId) {
-        const op = (entry.operation || '').toLowerCase();
-        if (op.includes('assign') || op.includes('owner') || op.includes('take')) {
-          console.log('[ILAC] Found user assignment in recent history:', entry.operation);
-          return userId;
-        }
-      }
-    }
-
-    console.log('[ILAC] Could not determine owner from history');
+    console.log('[ILAC] Could not determine owner');
     return null;
   }
 
@@ -2983,7 +2944,7 @@ if (isFeatureEnabled('ilacAutoAttach') &&
 
     const hasNoPreviousAttachments = userReports.length === 0;
 
-    let currentOwner = ilacGetCurrentOwnerFromHistory(caseHistory, userId);
+    let currentOwner = ilacGetCurrentOwner();
 
     if (!currentOwner) {
       currentOwner = ilacGetCaseOwnerFromPage();
@@ -3310,7 +3271,7 @@ if (isFeatureEnabled('ilacAutoAttach') &&
 
         ilacCreateToast({
           type: "info",
-          message: `Searching for ILAC Report...<br><span class="ilac-shipment-id">Case: ${caseId}</span>`,
+          message: `Searching for ILAC Report... <span class="ilac-shipment-id">Case: ${caseId}</span>`,
           cancelBtn: true,
           showProgress: true
         });
@@ -3380,7 +3341,7 @@ if (isFeatureEnabled('ilacAutoAttach') &&
             ilacRemoveToasts();
             ilacCreateToast({
               type: "info",
-              message: `Attaching report...<br><span class="ilac-shipment-id">${shipmentId}</span>`,
+              message: `Attaching report for <span class="ilac-shipment-id">${shipmentId}</span>`,
               showProgress: true
             });
 
@@ -3397,12 +3358,10 @@ if (isFeatureEnabled('ilacAutoAttach') &&
                 ilacMarkCaseAsAttached(caseId);
                 console.log('[ILAC] ✅ Report attached successfully!');
 
-                let successMsg = `<span class="ilac-status-badge">Attached</span><br>
-                                  Report successfully attached!<br><br>
-                                  <span class="ilac-shipment-id">${shipmentId}</span>`;
+                let successMsg = `<span class="ilac-status-badge">Attached</span> Report attached: <span class="ilac-shipment-id">${shipmentId}</span>`;
 
                 if (shipmentResult.multipleFound) {
-                  successMsg += `<br><br><em style="font-size:12px; color:#666;">Note: ${shipmentResult.allIds.length - 1} other shipment ID(s) were not attached.</em>`;
+                    successMsg += ` <em style="font-size:11px; color:#666;">(${shipmentResult.allIds.length - 1} other ID(s) not attached)</em>`;
                 }
 
                 ilacCreateToast({
@@ -3419,11 +3378,8 @@ if (isFeatureEnabled('ilacAutoAttach') &&
                 console.error('[ILAC] ❌ Attach failed:', errorMsg);
                 console.error('[ILAC] Full result:', JSON.stringify(result, null, 2));
                 ilacCreateToast({
-                  type: "danger",
-                  message: `<span class="ilac-status-badge">Failed</span><br>
-                           Could not attach report<br><br>
-                           <span class="ilac-shipment-id">${shipmentId}</span><br><br>
-                           <em>${errorMsg}</em>`,
+                    type: "danger",
+                    message: `<span class="ilac-status-badge">Failed</span> Could not attach <span class="ilac-shipment-id">${shipmentId}</span> - ${errorMsg}`,
                   autoDismiss: true,
                   duration: 7000
                 });
@@ -3433,8 +3389,7 @@ if (isFeatureEnabled('ilacAutoAttach') &&
               console.error('[ILAC] ❌ Error during attach:', e);
               ilacCreateToast({
                 type: "danger",
-                message: `<span class="ilac-status-badge">Error</span><br>
-                         ${e.message}`,
+                message: `<span class="ilac-status-badge">Error</span> ${e.message}`,
                 autoDismiss: true,
                 duration: 7000
               });
@@ -3446,9 +3401,8 @@ if (isFeatureEnabled('ilacAutoAttach') &&
         console.error('[ILAC] ❌ Main error:', e);
         ilacRemoveToasts();
         ilacCreateToast({
-          type: "danger",
-          message: `<span class="ilac-status-badge">Error</span><br>${e.message}`,
-          autoDismiss: true
+            type: "danger",
+            message: `<span class="ilac-status-badge">Error</span> ${e.message}`,
         });
       }
     }, 50);
@@ -3457,8 +3411,5 @@ if (isFeatureEnabled('ilacAutoAttach') &&
   // Start
   ilacAutoAttachMain();
 }
-
-
-
 
 })();
