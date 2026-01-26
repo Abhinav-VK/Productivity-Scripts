@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     6.4.0
+// @version     6.5.0
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -1218,7 +1218,7 @@
 
 
 
-    //////////////////////////////////
+//////////////////////////////////
 // 4) Serenity ID Extractor     //
 //////////////////////////////////
 
@@ -1426,6 +1426,30 @@ if (isFeatureEnabled('serenityExtractor') &&
       border-left: 3px solid #667eea;
     }
 
+    .serenity-stat-item.highlighted {
+      grid-column: 1 / -1;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border-left: none;
+      border-radius: 8px;
+      padding: 16px;
+      text-align: center;
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+    }
+
+    .serenity-stat-item.highlighted .serenity-stat-label {
+      color: rgba(255, 255, 255, 0.85);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .serenity-stat-item.highlighted .serenity-stat-value {
+      color: white;
+      font-size: 28px;
+      font-weight: 800;
+      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
     .serenity-stat-label {
       font-size: 11px;
       color: #718096;
@@ -1438,17 +1462,52 @@ if (isFeatureEnabled('serenityExtractor') &&
       color: #2d3748;
     }
 
-    .serenity-copied-badge {
-      display: inline-block;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    .serenity-copy-again-container {
+      text-align: center;
+      margin-top: 12px;
+      position: relative;
+    }
+
+    .serenity-copy-again-btn {
+      display: none;
+      background: #000000;
       color: white;
-      padding: 4px 10px;
-      border-radius: 12px;
-      font-size: 11px;
+      padding: 10px 24px;
+      border-radius: 6px;
+      font-size: 13px;
       font-weight: 600;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .serenity-copy-again-btn:hover {
+      background: #333333;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    .serenity-copy-again-btn:active {
+      transform: translateY(0);
+    }
+
+    .serenity-copy-feedback {
+      display: block;
       margin-top: 8px;
+      font-size: 12px;
+      color: #166534;
+      font-weight: 500;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .serenity-copy-feedback.visible {
+      opacity: 1;
     }
   `);
+
+  // Store extracted IDs for copy again functionality
+  let extractedIds = '';
 
   function toYMD(str) {
     const p = str.split('/');
@@ -1539,12 +1598,8 @@ if (isFeatureEnabled('serenityExtractor') &&
         <div id="serenity-results" class="serenity-results">
           <div class="serenity-results-title">Extraction Results</div>
           <div class="serenity-results-stats">
-            <div class="serenity-stat-item">
-              <div class="serenity-stat-label">IDs Found</div>
-              <div class="serenity-stat-value" id="serenity-count">0</div>
-            </div>
-            <div class="serenity-stat-item">
-              <div class="serenity-stat-label">Total Qty</div>
+            <div class="serenity-stat-item highlighted">
+              <div class="serenity-stat-label">Total Quantity</div>
               <div class="serenity-stat-value" id="serenity-qty">0</div>
             </div>
             <div class="serenity-stat-item">
@@ -1556,8 +1611,9 @@ if (isFeatureEnabled('serenityExtractor') &&
               <div class="serenity-stat-value" id="serenity-range" style="font-size:11px;">-</div>
             </div>
           </div>
-          <div style="text-align:center;">
-            <span class="serenity-copied-badge" id="serenity-copied-badge" style="display:none;">✓ Copied to Clipboard</span>
+          <div class="serenity-copy-again-container">
+            <button class="serenity-copy-again-btn" id="serenity-copy-again-btn">📋 Copy Again</button>
+            <span class="serenity-copy-feedback" id="serenity-copy-feedback">✓ Copied!</span>
           </div>
         </div>
       </div>
@@ -1569,11 +1625,27 @@ if (isFeatureEnabled('serenityExtractor') &&
     document.getElementById('close-serenity-panel').onclick = () => panel.remove();
     document.getElementById('start-serenity-extract').onclick = startExtraction;
 
+    // Copy Again button handler
+    document.getElementById('serenity-copy-again-btn').onclick = copyAgain;
+
     const input = document.getElementById('serenity-date-input');
     input.focus();
     input.addEventListener('keypress', (e) => {
       if (e.key === 'Enter' && !isExtracting) startExtraction();
     });
+  }
+
+  function copyAgain() {
+    if (extractedIds) {
+      GM_setClipboard(extractedIds);
+      const feedback = document.getElementById('serenity-copy-feedback');
+      if (feedback) {
+        feedback.classList.add('visible');
+        setTimeout(() => {
+          feedback.classList.remove('visible');
+        }, 2000);
+      }
+    }
   }
 
   function showStatus(message, type = 'info') {
@@ -1594,16 +1666,15 @@ if (isFeatureEnabled('serenityExtractor') &&
     const resultsDiv = document.getElementById('serenity-results');
     if (!resultsDiv) return;
 
-    document.getElementById('serenity-count').textContent = count;
     document.getElementById('serenity-qty').textContent = total;
     document.getElementById('serenity-pages').textContent = pages;
     document.getElementById('serenity-range').textContent = `${startDate} to ${endDate}`;
 
     resultsDiv.className = 'serenity-results visible';
 
-    const badge = document.getElementById('serenity-copied-badge');
-    if (badge) {
-      badge.style.display = 'inline-block';
+    const copyAgainBtn = document.getElementById('serenity-copy-again-btn');
+    if (copyAgainBtn) {
+      copyAgainBtn.style.display = 'inline-block';
     }
   }
 
@@ -1612,9 +1683,9 @@ if (isFeatureEnabled('serenityExtractor') &&
     if (resultsDiv) {
       resultsDiv.className = 'serenity-results';
     }
-    const badge = document.getElementById('serenity-copied-badge');
-    if (badge) {
-      badge.style.display = 'none';
+    const copyAgainBtn = document.getElementById('serenity-copy-again-btn');
+    if (copyAgainBtn) {
+      copyAgainBtn.style.display = 'none';
     }
   }
 
@@ -1639,6 +1710,7 @@ if (isFeatureEnabled('serenityExtractor') &&
     isExtracting = true;
     button.disabled = true;
     hideResults();
+    extractedIds = ''; // Reset stored IDs
 
     const endDate = addDays(startDate, 46);
     const allResults = new Map();
@@ -1685,9 +1757,13 @@ if (isFeatureEnabled('serenityExtractor') &&
     const ids = Array.from(allResults.keys()).join(',');
     const total = Array.from(allResults.values()).reduce((a, b) => a + b, 0);
 
+    // Store IDs for copy again functionality
+    extractedIds = ids;
+
     GM_setClipboard(ids);
 
-    showStatus('Extraction complete!', 'success');
+    // Updated status message
+    showStatus(`Copied ${allResults.size} IDs to Clipboard`, 'success');
     showResults(allResults.size, total, pageCount, startDate, endDate);
   }
 
@@ -1699,10 +1775,6 @@ if (isFeatureEnabled('serenityExtractor') &&
   btn.addEventListener('click', showSerenityPanel);
   document.body.appendChild(btn);
 }
-
-
-
-
 
 
 
@@ -1909,21 +1981,21 @@ if (isFeatureEnabled('serenityExtractor') &&
         }
 
         .mid-panel-close {
-    background: rgba(255,255,255,0.2);
-    border: none;
-    color: white;
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    font-size: 18px;
-    font-weight: bold;
-    line-height: 1;
-    transition: background 0.2s ease;
-}
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 18px;
+            font-weight: bold;
+            line-height: 1;
+            transition: background 0.2s ease;
+        }
 
         .mid-panel-close:hover {
             background: rgba(255,255,255,0.3);
@@ -2074,7 +2146,100 @@ if (isFeatureEnabled('serenityExtractor') &&
         .mid-result-log:last-child {
             border-bottom: none;
         }
+
+        .mid-mapping-type-indicator {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+
+        .mid-mapping-type-indicator.asin {
+            background: rgba(59, 130, 246, 0.15);
+            color: #1d4ed8;
+        }
+
+        .mid-mapping-type-indicator.fnsku {
+            background: rgba(16, 185, 129, 0.15);
+            color: #047857;
+        }
     `);
+
+    // Function to get the current mapping type
+    function getMappingType() {
+      // Try using the XPath first
+      try {
+        const xpathResult = document.evaluate(
+          '//*[@id="includeInactive"]//*[@id="getMappingsType"]',
+          document,
+          null,
+          XPathResult.FIRST_ORDERED_NODE_TYPE,
+          null
+        );
+        const selector = xpathResult.singleNodeValue;
+
+        if (selector) {
+          // Handle select element
+          if (selector.tagName === 'SELECT') {
+            const selectedOption = selector.options[selector.selectedIndex];
+            const value = selectedOption?.textContent?.trim() || selector.value || '';
+            console.log('[FNSKU MID Search] Mapping type from XPath (select):', value);
+            return value;
+          }
+          // Handle other element types
+          const value = selector.value || selector.textContent?.trim() || '';
+          console.log('[FNSKU MID Search] Mapping type from XPath:', value);
+          return value;
+        }
+      } catch (e) {
+        console.log('[FNSKU MID Search] XPath evaluation error:', e);
+      }
+
+      // Fallback: Try direct ID selector
+      const selector = document.querySelector('#getMappingsType');
+      if (selector) {
+        if (selector.tagName === 'SELECT') {
+          const selectedOption = selector.options[selector.selectedIndex];
+          const value = selectedOption?.textContent?.trim() || selector.value || '';
+          console.log('[FNSKU MID Search] Mapping type from ID (select):', value);
+          return value;
+        }
+        const value = selector.value || selector.textContent?.trim() || '';
+        console.log('[FNSKU MID Search] Mapping type from ID:', value);
+        return value;
+      }
+
+      // Another fallback: Look for any dropdown with mapping options
+      const allSelects = document.querySelectorAll('select');
+      for (const sel of allSelects) {
+        const options = Array.from(sel.options).map(o => o.textContent.toLowerCase());
+        if (options.some(o => o.includes('asin mapping') || o.includes('fnsku mapping'))) {
+          const selectedOption = sel.options[sel.selectedIndex];
+          const value = selectedOption?.textContent?.trim() || '';
+          console.log('[FNSKU MID Search] Mapping type from fallback select:', value);
+          return value;
+        }
+      }
+
+      console.log('[FNSKU MID Search] Could not determine mapping type, defaulting to FNSKU');
+      return 'FNSKU Mappings'; // Default
+    }
+
+    function isAsinMappingMode() {
+      const mappingType = getMappingType().toLowerCase();
+      return mappingType.includes('asin');
+    }
+
+    function isFnskuMappingMode() {
+      const mappingType = getMappingType().toLowerCase();
+      return mappingType.includes('fnsku') || !mappingType.includes('asin');
+    }
+
+    function getMappingTypeDisplay() {
+      return isAsinMappingMode() ? 'ASIN Mappings' : 'FNSKU Mappings';
+    }
 
     function createFloatingButton() {
       if (document.getElementById('fnsku-mid-search-btn')) return;
@@ -2094,18 +2259,29 @@ if (isFeatureEnabled('serenityExtractor') &&
       const existing = document.getElementById('mid-search-panel');
       if (existing) { existing.remove(); return; }
 
+      const mappingType = getMappingTypeDisplay();
+      const isAsin = isAsinMappingMode();
+
       const panel = document.createElement('div');
       panel.id = 'mid-search-panel';
 
       panel.innerHTML = `
         <div class="mid-panel-header">
-          <span class="mid-panel-title">MID Search Tool</span>
+          <span class="mid-panel-title">MID Search Tool
+            <span class="mid-mapping-type-indicator ${isAsin ? 'asin' : 'fnsku'}">${mappingType}</span>
+          </span>
           <button class="mid-panel-close" id="close-mid-panel">✕</button>
         </div>
         <div class="mid-panel-content">
           <div class="mid-input-group">
             <label class="mid-input-label">Enter MID to Search:</label>
             <input type="text" id="mid-search-input" class="mid-input-field" placeholder="Paste MID here..." />
+          </div>
+          <div style="font-size: 12px; color: #666; margin-bottom: 12px; padding: 8px; background: #f0f4ff; border-radius: 6px;">
+            <strong>Mode:</strong> ${mappingType}<br>
+            ${isAsin
+              ? '<em>Will check for matching FNSKU = ASIN </em>'
+              : '<em>Will search for MID matches only</em>'}
           </div>
           <button id="start-mid-search" class="mid-search-btn">Search All Pages</button>
           <div id="search-status" class="mid-status"></div>
@@ -2144,13 +2320,18 @@ if (isFeatureEnabled('serenityExtractor') &&
 
       clearAllHighlights();
 
+      // Determine the mapping mode at the start of search
+      const isAsinMode = isAsinMappingMode();
+      const mappingType = getMappingTypeDisplay();
+      console.log(`[FNSKU MID Search] Starting search in ${mappingType} mode`);
+
       try {
         let pageCount = 0;
         const maxPages = 200;
         const searchMIDLower = searchMID.toLowerCase();
         let found = false;
 
-        showStatus('Searching pages...', 'info');
+        showStatus(`Searching pages (${mappingType})...`, 'info');
 
         while (pageCount < maxPages) {
           pageCount++;
@@ -2159,43 +2340,62 @@ if (isFeatureEnabled('serenityExtractor') &&
           const pageResults = searchCurrentPage(searchMIDLower, pageCount);
 
           if (pageResults.length > 0) {
-            const matchingResults = pageResults.filter(result => result.fnsku === result.asin);
+            if (isAsinMode) {
+              // ASIN Mappings mode: Check for matching FNSKU (X00) = ASIN (B00)
+              const matchingResults = pageResults.filter(result => result.fnsku === result.asin);
 
-            if (matchingResults.length > 0) {
-              searchResults = matchingResults;
-              matchingResults.forEach(result => highlightRow(result.element, result.mid));
-              scrollToElement(matchingResults[0].element);
-              addResultLine(`Page ${pageCount}: Found ${matchingResults.length} result(s) with matching FNSKU/ASIN!`);
+              if (matchingResults.length > 0) {
+                searchResults = matchingResults;
+                matchingResults.forEach(result => highlightRow(result.element, result.mid));
+                scrollToElement(matchingResults[0].element);
+                addResultLine(`Page ${pageCount}: Found ${matchingResults.length} result(s) with matching FNSKU/ASIN!`);
+                displayResults(false, isAsinMode);
+                found = true;
+                break;
+              } else {
+                // Found MID but FNSKU != ASIN, show but continue searching
+                addResultLine(`Page ${pageCount}: Found ${pageResults.length} MID match(es) but FNSKU ≠ ASIN, continuing...`);
+                // Don't stop, keep searching for matching FNSKU/ASIN
+              }
             } else {
+              // FNSKU Mappings mode: Just check for MID match
               searchResults = pageResults;
               pageResults.forEach(result => highlightRow(result.element, result.mid));
               scrollToElement(pageResults[0].element);
-              addResultLine(`Page ${pageCount}: Found ${pageResults.length} result(s)`);
+              addResultLine(`Page ${pageCount}: Found ${pageResults.length} MID match(es)!`);
+              displayResults(false, isAsinMode);
+              found = true;
+              break;
             }
-
-            displayResults();
-            found = true;
-            break;
           } else {
             addResultLine(`Page ${pageCount}: No matches`);
-
-            const nextBtn = findNextButton();
-            if (!nextBtn) break;
-
-            nextBtn.click();
-            const pageLoadSuccess = await waitForPageLoad(5000);
-            if (!pageLoadSuccess) { addResultLine(`Page ${pageCount}: Page load timeout`); break; }
-
-            await new Promise(resolve => setTimeout(resolve, 800));
           }
+
+          const nextBtn = findNextButton();
+          if (!nextBtn) break;
+
+          nextBtn.click();
+          const pageLoadSuccess = await waitForPageLoad(5000);
+          if (!pageLoadSuccess) { addResultLine(`Page ${pageCount}: Page load timeout`); break; }
+
+          await new Promise(resolve => setTimeout(resolve, 800));
         }
 
         if (found) {
-          showStatus(`Found match on page ${pageCount}!`, 'success');
-          displayResults(true);
+          if (isAsinMode) {
+            showStatus(`Found FNSKU=ASIN match on page ${pageCount}!`, 'success');
+          } else {
+            showStatus(`Found MID match on page ${pageCount}!`, 'success');
+          }
+          displayResults(true, isAsinMode);
         } else {
-          showStatus(`No matches found for "${searchMID}" across ${pageCount} pages.`, 'warning');
-          addResultLine(`Search completed - no matches found across ${pageCount} pages.`);
+          if (isAsinMode) {
+            showStatus(`No FNSKU=ASIN matches found for "${searchMID}" across ${pageCount} pages.`, 'warning');
+            addResultLine(`Search completed - no matching FNSKU/ASIN found across ${pageCount} pages.`);
+          } else {
+            showStatus(`No MID matches found for "${searchMID}" across ${pageCount} pages.`, 'warning');
+            addResultLine(`Search completed - no MID matches found across ${pageCount} pages.`);
+          }
         }
 
         if (pageCount >= maxPages) {
@@ -2230,7 +2430,8 @@ if (isFeatureEnabled('serenityExtractor') &&
           const condition = cells[4]?.textContent?.trim() || '';
           const status = cells[5]?.textContent?.trim() || '';
 
-          if (fnsku && asin && merchantId.toLowerCase().includes(searchMIDLower)) {
+          // For both modes, we first find rows with matching MID
+          if (merchantId.toLowerCase().includes(searchMIDLower)) {
             results.push({
               element: row, page: pageNumber, row: rowIndex, mid: searchMIDLower,
               merchantId, msku, fnsku, asin, condition, status, fullText: row.textContent.trim()
@@ -2242,30 +2443,41 @@ if (isFeatureEnabled('serenityExtractor') &&
       return results;
     }
 
-    function displayResults(final = false) {
+    function displayResults(final = false, isAsinMode = true) {
       const resultsDiv = document.getElementById('search-results');
       if (!resultsDiv) return;
 
       let html = '';
 
       if (final && searchResults.length > 0) {
-        const fnskuAsinMatch = searchResults.some(r => r.fnsku === r.asin);
-        html += `<div class="mid-result-title" style="padding: 8px; margin: 8px; background: white; border-radius: 6px;">
-          Search Results (${searchResults.length} matches${fnskuAsinMatch ? ' with' : ' without'} same FNSKU/ASIN):</div>`;
+        if (isAsinMode) {
+          const fnskuAsinMatch = searchResults.some(r => r.fnsku === r.asin);
+          html += `<div class="mid-result-title" style="padding: 8px; margin: 8px; background: white; border-radius: 6px;">
+            ASIN Mappings Results (${searchResults.length} matches${fnskuAsinMatch ? ' with' : ' without'} same FNSKU/ASIN):</div>`;
+        } else {
+          html += `<div class="mid-result-title" style="padding: 8px; margin: 8px; background: white; border-radius: 6px;">
+            FNSKU Mappings Results (${searchResults.length} MID matches):</div>`;
+        }
       }
 
       searchResults.forEach((result, index) => {
         const fnskuAsinMatch = result.fnsku === result.asin;
+
+        let fnskuAsinDisplay = '';
+        if (isAsinMode) {
+          fnskuAsinDisplay = fnskuAsinMatch
+            ? '<span style="color: green; font-weight: bold;">✓ FNSKU = ASIN</span>'
+            : '<span style="color: orange;">✗ FNSKU ≠ ASIN</span>';
+        }
+
         html += `
           <div class="mid-result-item">
-            <div class="mid-result-title">Match ${index + 1} (Page ${result.page})</div>
+            <div class="mid-result-title">Match ${index + 1} (Page ${result.page}) ${fnskuAsinDisplay}</div>
             <div class="mid-result-details">
               <strong>Merchant:</strong> ${result.merchantId}<br>
               <strong>MSKU:</strong> ${result.msku}<br>
               <strong>FNSKU:</strong> ${result.fnsku}<br>
-              <strong>ASIN:</strong> ${result.asin} ${fnskuAsinMatch ?
-                '<span style="color: green;">(matches FNSKU)</span>' :
-                '<span style="color: orange;">(different from FNSKU)</span>'}<br>
+              <strong>ASIN:</strong> ${result.asin}<br>
               <strong>Condition:</strong> ${result.condition}<br>
               <strong>Status:</strong> ${result.status}
             </div>
