@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     6.5.0
+// @version     6.5.1
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -1935,6 +1935,8 @@ if (isFeatureEnabled('serenityExtractor') &&
     }, 2000);
   }
 
+
+
   /////////////////////////////////
   // 6) Check Mapping            //
   /////////////////////////////////
@@ -1978,6 +1980,14 @@ if (isFeatureEnabled('serenityExtractor') &&
             font-size: 16px;
             font-weight: 700;
             margin: 0;
+        }
+
+        .mid-mapping-type-indicator {
+            font-style: italic;
+            font-weight: 400;
+            color: white;
+            opacity: 0.9;
+            font-size: 13px;
         }
 
         .mid-panel-close {
@@ -2146,25 +2156,6 @@ if (isFeatureEnabled('serenityExtractor') &&
         .mid-result-log:last-child {
             border-bottom: none;
         }
-
-        .mid-mapping-type-indicator {
-            display: inline-block;
-            padding: 4px 10px;
-            border-radius: 12px;
-            font-size: 11px;
-            font-weight: 600;
-            margin-left: 8px;
-        }
-
-        .mid-mapping-type-indicator.asin {
-            background: rgba(59, 130, 246, 0.15);
-            color: #1d4ed8;
-        }
-
-        .mid-mapping-type-indicator.fnsku {
-            background: rgba(16, 185, 129, 0.15);
-            color: #047857;
-        }
     `);
 
     // Function to get the current mapping type
@@ -2237,9 +2228,39 @@ if (isFeatureEnabled('serenityExtractor') &&
       return mappingType.includes('fnsku') || !mappingType.includes('asin');
     }
 
+    function getMappingTypeShort() {
+      return isAsinMappingMode() ? '(ASIN)' : '(FNSKU)';
+    }
+
     function getMappingTypeDisplay() {
       return isAsinMappingMode() ? 'ASIN Mappings' : 'FNSKU Mappings';
     }
+
+
+
+      function updatePanelMappingType() {
+  const mappingTypeShort = getMappingTypeShort();
+  const mappingType = getMappingTypeDisplay();
+  const isAsin = isAsinMappingMode();
+
+  // Update the header indicator
+  const indicator = document.querySelector('.mid-mapping-type-indicator');
+  if (indicator) {
+    indicator.textContent = mappingTypeShort;
+  }
+
+  // Update the info box
+  const infoBox = document.querySelector('#mid-search-panel .mid-panel-content > div:nth-child(2)');
+  if (infoBox) {
+    infoBox.innerHTML = `
+      <strong>Mode:</strong> ${mappingType}<br>
+      ${isAsin
+        ? '<em>Will check for matching FNSKU (X00) = ASIN (B00)</em>'
+        : '<em>Will search for MID matches only</em>'}
+    `;
+  }
+}
+
 
     function createFloatingButton() {
       if (document.getElementById('fnsku-mid-search-btn')) return;
@@ -2260,6 +2281,7 @@ if (isFeatureEnabled('serenityExtractor') &&
       if (existing) { existing.remove(); return; }
 
       const mappingType = getMappingTypeDisplay();
+      const mappingTypeShort = getMappingTypeShort();
       const isAsin = isAsinMappingMode();
 
       const panel = document.createElement('div');
@@ -2267,9 +2289,7 @@ if (isFeatureEnabled('serenityExtractor') &&
 
       panel.innerHTML = `
         <div class="mid-panel-header">
-          <span class="mid-panel-title">MID Search Tool
-            <span class="mid-mapping-type-indicator ${isAsin ? 'asin' : 'fnsku'}">${mappingType}</span>
-          </span>
+          <span class="mid-panel-title">MID Search Tool <span class="mid-mapping-type-indicator">${mappingTypeShort}</span></span>
           <button class="mid-panel-close" id="close-mid-panel">✕</button>
         </div>
         <div class="mid-panel-content">
@@ -2280,7 +2300,7 @@ if (isFeatureEnabled('serenityExtractor') &&
           <div style="font-size: 12px; color: #666; margin-bottom: 12px; padding: 8px; background: #f0f4ff; border-radius: 6px;">
             <strong>Mode:</strong> ${mappingType}<br>
             ${isAsin
-              ? '<em>Will check for matching FNSKU = ASIN </em>'
+              ? '<em>Will check for matching FNSKU (X00) = ASIN (B00)</em>'
               : '<em>Will search for MID matches only</em>'}
           </div>
           <button id="start-mid-search" class="mid-search-btn">Search All Pages</button>
@@ -2292,13 +2312,49 @@ if (isFeatureEnabled('serenityExtractor') &&
       Object.assign(panel.style, { bottom: '80px', right: '20px' });
       document.body.appendChild(panel);
 
-      document.getElementById('close-mid-panel').onclick = () => panel.remove();
+      document.getElementById('close-mid-panel').onclick = () => {
+  // Cleanup observers and listeners
+  if (panel.mappingObserver) {
+    panel.mappingObserver.disconnect();
+  }
+  if (panel.mappingTypeSelector && panel.mappingTypeHandler) {
+    panel.mappingTypeSelector.removeEventListener('change', panel.mappingTypeHandler);
+  }
+  panel.remove();
+};
       document.getElementById('start-mid-search').onclick = startMidSearch;
       document.getElementById('mid-search-input').focus();
 
       document.getElementById('mid-search-input').addEventListener('keypress', (e) => {
         if (e.key === 'Enter' && !isSearching) startMidSearch();
       });
+        // Watch for mapping type dropdown changes
+const mappingTypeSelector = document.querySelector('#getMappingsType');
+if (mappingTypeSelector) {
+  mappingTypeSelector.addEventListener('change', updatePanelMappingType);
+
+  // Store reference for cleanup
+  panel.mappingTypeSelector = mappingTypeSelector;
+  panel.mappingTypeHandler = updatePanelMappingType;
+}
+
+// Also observe via MutationObserver as fallback
+const mappingObserver = new MutationObserver(() => {
+  updatePanelMappingType();
+});
+
+const dropdownContainer = document.querySelector('#includeInactive');
+if (dropdownContainer) {
+  mappingObserver.observe(dropdownContainer, {
+    subtree: true,
+    attributes: true,
+    characterData: true,
+    childList: true
+  });
+}
+
+// Store observer for cleanup
+panel.mappingObserver = mappingObserver;
     }
 
     async function startMidSearch() {
@@ -2637,6 +2693,7 @@ if (isFeatureEnabled('serenityExtractor') &&
     });
     observer.observe(document.body, { childList: true, subtree: true });
   }
+
 
   /////////////////////////////////
   // 7) Open RCAI                //
