@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     6.5.1
+// @version     6.5.2
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -2255,7 +2255,7 @@ if (isFeatureEnabled('serenityExtractor') &&
     infoBox.innerHTML = `
       <strong>Mode:</strong> ${mappingType}<br>
       ${isAsin
-        ? '<em>Will check for matching FNSKU (X00) = ASIN (B00)</em>'
+        ? '<em>Will check for matching FNSKU = ASIN</em>'
         : '<em>Will search for MID matches only</em>'}
     `;
   }
@@ -2300,7 +2300,7 @@ if (isFeatureEnabled('serenityExtractor') &&
           <div style="font-size: 12px; color: #666; margin-bottom: 12px; padding: 8px; background: #f0f4ff; border-radius: 6px;">
             <strong>Mode:</strong> ${mappingType}<br>
             ${isAsin
-              ? '<em>Will check for matching FNSKU (X00) = ASIN (B00)</em>'
+              ? '<em>Will check for matching FNSKU = ASIN</em>'
               : '<em>Will search for MID matches only</em>'}
           </div>
           <button id="start-mid-search" class="mid-search-btn">Search All Pages</button>
@@ -2397,7 +2397,7 @@ panel.mappingObserver = mappingObserver;
 
           if (pageResults.length > 0) {
             if (isAsinMode) {
-              // ASIN Mappings mode: Check for matching FNSKU (X00) = ASIN (B00)
+              // ASIN Mappings mode: Check for matching FNSKU = ASIN
               const matchingResults = pageResults.filter(result => result.fnsku === result.asin);
 
               if (matchingResults.length > 0) {
