@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     6.5.2
+// @version     6.5.3
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -599,7 +599,7 @@
 
 
 
-    /////////////////////////////////
+  /////////////////////////////////
   // 3) RCAI Results Popup       //
   /////////////////////////////////
 
@@ -748,14 +748,14 @@
       #rcai-table td:nth-child(4), #rcai-table th:nth-child(4) { width: 200px !important; min-width: 200px !important; }
       #rcai-table td:nth-child(5), #rcai-table th:nth-child(5) { width: 50px !important; min-width: 50px !important; max-width: 50px !important; }
       #rcai-table td:nth-child(6), #rcai-table th:nth-child(6) { width: 60px !important; min-width: 60px !important; max-width: 60px !important; }
-      #rcai-table td:nth-child(7), #rcai-table th:nth-child(7) { width: 50px !important; min-width: 50px !important; max-width: 50px !important; }
-      #rcai-table td:nth-child(8), #rcai-table th:nth-child(8) { width: 50px !important; min-width: 50px !important; max-width: 50px !important; }
-      #rcai-table td:nth-child(9), #rcai-table th:nth-child(9) { width: 50px !important; min-width: 50px !important; max-width: 50px !important; }
+#rcai-table td:nth-child(7), #rcai-table th:nth-child(7) { width: 70px !important; min-width: 70px !important; max-width: 70px !important; }
+#rcai-table td:nth-child(8), #rcai-table th:nth-child(8) { width: 70px !important; min-width: 70px !important; max-width: 70px !important; }
+#rcai-table td:nth-child(9), #rcai-table th:nth-child(9) { width: 70px !important; min-width: 70px !important; max-width: 70px !important; }
       #rcai-table td:nth-child(10), #rcai-table th:nth-child(10) { width: 200px !important; min-width: 200px !important; }
       #rcai-table td:nth-child(11), #rcai-table th:nth-child(11) { width: auto !important; min-width: 300px !important; }
       #rcai-table td:last-child, #rcai-table th:last-child { width: 25px !important; min-width: 25px !important; max-width: 25px !important; text-align: center !important; }
 
-      #rcai-table input {
+      #rcai-table input:not([type="checkbox"]) {
         width: 100% !important;
         padding: 3px 5px !important;
         border: none !important;
@@ -765,8 +765,33 @@
         box-sizing: border-box !important;
       }
 
+      #rcai-table input[type="checkbox"] {
+        width: 11px !important;
+        height: 11px !important;
+        margin: 0 0 0 4px !important;
+        cursor: pointer !important;
+        accent-color: #8b5cf6 !important;
+        vertical-align: middle !important;
+        display: inline !important;
+      }
+
+      .rcai-header-checkbox {
+        white-space: nowrap !important;
+      }
+
+      .rcai-header-checkbox label {
+        font-size: 11px !important;
+        font-weight: bold !important;
+        color: #475569 !important;
+        cursor: pointer !important;
+        user-select: none !important;
+        vertical-align: middle !important;
+        display: inline !important;
+      }
+
       #rcai-table input:focus { background: #f3f4f6 !important; border: 1px solid #8b5cf6 !important; border-radius: 2px !important; }
       #rcai-table thead tr { background: linear-gradient(135deg, #f8fafc, #f1f5f9) !important; }
+      #rcai-table thead th { border: 2px solid #cbd5e1 !important; }
       #rcai-table thead input { font-weight: bold !important; color: #475569 !important; background: transparent !important; }
 
       .remove-btn {
@@ -904,16 +929,29 @@
       const hdr = ["#","FNSKU","DECISION","RC SUMMARY","DISC","FAULT","FOUND","DENY","RMS","BLURB","NOTES"];
       const thead = document.createElement('thead');
       const tr = document.createElement('tr');
-      hdr.forEach(h => {
+
+      hdr.forEach((h, index) => {
         const th = document.createElement('th');
-        const inp = document.createElement('input');
-        inp.value = h;
-        inp.readOnly = true;
-        inp.style.fontWeight = 'bold';
-        inp.style.background = 'transparent';
-        th.appendChild(inp);
+        th.style.textAlign = 'center';
+
+        if (index === 9 || index === 10) {
+          const span = document.createElement('span');
+          span.className = 'rcai-header-checkbox';
+          span.innerHTML = `<label for="${index === 9 ? 'include-blurb' : 'include-notes'}">${h}</label><input type="checkbox" id="${index === 9 ? 'include-blurb' : 'include-notes'}" checked>`;
+          th.appendChild(span);
+        } else {
+          const inp = document.createElement('input');
+          inp.value = h;
+          inp.readOnly = true;
+          inp.style.fontWeight = 'bold';
+          inp.style.background = 'transparent';
+          inp.style.textAlign = 'center';
+          th.appendChild(inp);
+        }
+
         tr.appendChild(th);
       });
+
       const th = document.createElement('th');
       th.innerHTML = '';
       tr.appendChild(th);
@@ -996,29 +1034,65 @@
     }
 
     function copyData() {
-      const widths = [4,12,12,18,6,10,8,8,8,34,20];
+      const includeBlurb = document.getElementById('include-blurb')?.checked ?? true;
+      const includeNotes = document.getElementById('include-notes')?.checked ?? true;
+
+      // Build dynamic headers and widths based on selections
+      const allHeaders = ['#','FNSKU','DECISION','RC SUMMARY','DISC','FAULT','FOUND','DENY','RMS','BLURB','NOTES'];
+      const allWidths = [4,12,12,18,6,10,8,8,8,34,20];
+
+      const hdr = [];
+      const widths = [];
+      const includeColumn = [];
+
+      allHeaders.forEach((h, i) => {
+        if (i === 9 && !includeBlurb) {
+          includeColumn.push(false);
+          return;
+        }
+        if (i === 10 && !includeNotes) {
+          includeColumn.push(false);
+          return;
+        }
+        includeColumn.push(true);
+        hdr.push(h);
+        widths.push(allWidths[i]);
+      });
+
       let out = 'RCAI RESULTS:\n';
-      const hdr = ['#','FNSKU','DECISION','RC SUMMARY','DISC','FAULT','FOUND','DENY','RMS','BLURB','NOTES'];
       out += '|' + hdr.map((h,i) => h.padEnd(widths[i])).join('|') + '\n';
+
       let tF=0, tD=0, tR=0;
+
       document.querySelectorAll('#rcai-body tr').forEach(r => {
         const cells = Array.from(r.querySelectorAll('td')).slice(0,11);
-        const vals = cells.map((cell,i) => {
+        const vals = [];
+
+        cells.forEach((cell, i) => {
+          if (!includeColumn[i]) return;
+
           let v = cell.querySelector('input')?.value || '-';
           if (i === 6) tF += parseFloat(v) || 0;
           if (i === 7) tD += parseFloat(v) || 0;
           if (i === 8) tR += parseFloat(v) || 0;
-          return v.slice(0,widths[i]-1).padEnd(widths[i]);
+
+          const widthIndex = hdr.indexOf(allHeaders[i]);
+          vals.push(v.slice(0, widths[widthIndex]-1).padEnd(widths[widthIndex]));
         });
+
         out += '|' + vals.join('|') + '\n';
       });
-      const total = widths.map((w,i) => {
-        if (i === 5) return 'TOTALS →'.padEnd(w);
-        if (i === 6) return tF.toString().padEnd(w);
-        if (i === 7) return tD.toString().padEnd(w);
-        if (i === 8) return tR.toString().padEnd(w);
-        return ''.padEnd(w);
+
+      // Build totals row
+      const total = hdr.map((h, i) => {
+        const originalIndex = allHeaders.indexOf(h);
+        if (originalIndex === 5) return 'TOTALS →'.padEnd(widths[i]);
+        if (originalIndex === 6) return tF.toString().padEnd(widths[i]);
+        if (originalIndex === 7) return tD.toString().padEnd(widths[i]);
+        if (originalIndex === 8) return tR.toString().padEnd(widths[i]);
+        return ''.padEnd(widths[i]);
       });
+
       out += '|' + total.join('|') + '\n';
       navigator.clipboard.writeText(out);
     }
@@ -3196,11 +3270,12 @@ if (isFeatureEnabled('ilacAutoAttach') &&
     return null;
   }
 
-  function ilacIsValidCaseToAttachReport(userId, caseId, caseHistory, caseAttachments) {
+function ilacIsValidCaseToAttachReport(userId, caseId, caseHistory, caseAttachments) {
     console.log('[ILAC] === VALIDATION START ===');
     console.log('[ILAC] User ID:', userId);
     console.log('[ILAC] Case ID:', caseId);
 
+    // Check 1: Already attached this browser session
     if (ilacWasAttachedThisSession(caseId)) {
       console.log('[ILAC] ❌ SKIP: Already attached in this browser session');
       return false;
@@ -3213,6 +3288,7 @@ if (isFeatureEnabled('ilacAutoAttach') &&
 
     const hasNoPreviousAttachments = userReports.length === 0;
 
+    // Check 2: Verify ownership
     let currentOwner = ilacGetCurrentOwner();
 
     if (!currentOwner) {
@@ -3228,6 +3304,7 @@ if (isFeatureEnabled('ilacAutoAttach') &&
       return false;
     }
 
+    // Check 3: Verify user has activity if ownership unclear
     if (currentOwner === userId) {
       console.log('[ILAC] ✓ User owns the case');
     } else if (hasNoPreviousAttachments) {
@@ -3256,15 +3333,39 @@ if (isFeatureEnabled('ilacAutoAttach') &&
       return false;
     }
 
+    // Check 4: No previous attachments - VALID
     if (hasNoPreviousAttachments) {
       console.log('[ILAC] ✅ VALID: No previous attachments by user');
       return true;
     }
 
+    // Check 5: Has previous attachments - check if last one was today
     userReports.sort((a, b) => (b.associationDate || 0) - (a.associationDate || 0));
     const lastAttachmentDate = userReports[0]?.associationDate || 0;
     console.log('[ILAC] Last attachment date:', new Date(lastAttachmentDate).toISOString());
 
+    // Get today's start (midnight)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStart = today.getTime();
+
+    // Get the day of last attachment (midnight of that day)
+    const lastAttachmentDay = new Date(lastAttachmentDate);
+    lastAttachmentDay.setHours(0, 0, 0, 0);
+    const lastAttachmentDayStart = lastAttachmentDay.getTime();
+
+    console.log('[ILAC] Today start:', new Date(todayStart).toISOString());
+    console.log('[ILAC] Last attachment day start:', new Date(lastAttachmentDayStart).toISOString());
+
+    // If last attachment was NOT today, allow new attachment
+    if (lastAttachmentDayStart < todayStart) {
+      console.log('[ILAC] ✅ VALID: Last attachment was not today (previous day or earlier)');
+      return true;
+    }
+
+    console.log('[ILAC] Last attachment was today, checking for ownership change...');
+
+    // Check 6: Last attachment was today - check if ownership changed after last attachment
     let ownershipDate = 0;
     if (caseHistory && caseHistory.entries) {
       for (const entry of caseHistory.entries) {
@@ -3280,16 +3381,16 @@ if (isFeatureEnabled('ilacAutoAttach') &&
 
     if (ownershipDate === 0) {
       console.log('[ILAC] ⚠️ Could not find ownership timestamp');
-      console.log('[ILAC] ❌ SKIP: User has existing attachments, being cautious');
+      console.log('[ILAC] ❌ SKIP: Already attached today');
       return false;
     }
 
     if (ownershipDate > lastAttachmentDate) {
-      console.log('[ILAC] ✅ VALID: Ownership is newer than last attachment');
+      console.log('[ILAC] ✅ VALID: Ownership is newer than last attachment (today)');
       return true;
     }
 
-    console.log('[ILAC] ❌ SKIP: Already attached since last ownership change');
+    console.log('[ILAC] ❌ SKIP: Already attached today since last ownership change');
     return false;
   }
 
