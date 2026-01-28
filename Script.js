@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     6.5.3
+// @version     6.6.0
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -3270,129 +3270,212 @@ if (isFeatureEnabled('ilacAutoAttach') &&
     return null;
   }
 
+
+
+    function ilacGetCaseStatus() {
+  console.log('[ILAC] Looking for case status...');
+
+  // Method 1: From deprecated_getViewCaseData (most reliable)
+  try {
+    const caseData = (unsafeWindow?.deprecated_getViewCaseData || window?.deprecated_getViewCaseData)?.();
+    if (caseData?.caseDetails?.status) {
+      console.log('[ILAC] Found status from caseDetails:', caseData.caseDetails.status);
+      return caseData.caseDetails.status;
+    }
+  } catch (e) {
+    console.log('[ILAC] Error getting status from caseDetails:', e);
+  }
+
+  // Method 2: Try to get from DOM
+  console.log('[ILAC] Trying to get status from DOM (fallback)...');
+
+  const rows = document.querySelectorAll('kat-table-body kat-table-row');
+  for (const row of rows) {
+    const cells = row.querySelectorAll('kat-table-cell');
+    if (cells.length >= 2) {
+      const label = cells[0]?.textContent?.trim();
+      if (label === 'Status' || label === 'Case Status') {
+        const status = cells[1]?.textContent?.trim();
+        if (status && status.length > 0) {
+          console.log('[ILAC] Found status from DOM (method 1):', status);
+          return status;
+        }
+      }
+    }
+  }
+
+  // Method 3: Search all table cells
+  const allCells = document.querySelectorAll('kat-table-cell, td, th');
+  for (let i = 0; i < allCells.length - 1; i++) {
+    const text = allCells[i].textContent.trim();
+    if (text === 'Status' || text === 'Case Status') {
+      const nextCell = allCells[i + 1];
+      const status = nextCell?.textContent?.trim();
+      if (status && status.length > 0 && status.length < 50) {
+        console.log('[ILAC] Found status from DOM (method 2):', status);
+        return status;
+      }
+    }
+  }
+
+  // Method 4: Look for status badge/pill elements
+  const statusElements = document.querySelectorAll('[class*="status"], [class*="Status"], [data-status]');
+  for (const el of statusElements) {
+    const text = el.textContent?.trim();
+    if (text && (text.toLowerCase().includes('work in progress') ||
+                 text.toLowerCase().includes('pending') ||
+                 text.toLowerCase().includes('resolved') ||
+                 text.toLowerCase().includes('closed'))) {
+      console.log('[ILAC] Found status from status element:', text);
+      return text;
+    }
+  }
+
+  console.log('[ILAC] Could not determine case status');
+  return null;
+}
+
+
+
 function ilacIsValidCaseToAttachReport(userId, caseId, caseHistory, caseAttachments) {
-    console.log('[ILAC] === VALIDATION START ===');
-    console.log('[ILAC] User ID:', userId);
-    console.log('[ILAC] Case ID:', caseId);
+  console.log('[ILAC] === VALIDATION START ===');
+  console.log('[ILAC] User ID:', userId);
+  console.log('[ILAC] Case ID:', caseId);
 
-    // Check 1: Already attached this browser session
-    if (ilacWasAttachedThisSession(caseId)) {
-      console.log('[ILAC] ❌ SKIP: Already attached in this browser session');
-      return false;
-    }
+  // Check 0: Verify case status is "Work in Progress"
+  const caseStatus = ilacGetCaseStatus();
+  console.log('[ILAC] Case status:', caseStatus);
 
-    const allReports = caseAttachments?.Report || [];
-    const userReports = allReports.filter(r => r?.associatingAgent === userId);
-    console.log('[ILAC] Total attachments:', allReports.length);
-    console.log('[ILAC] User\'s attachments:', userReports.length);
+  if (!caseStatus) {
+    console.log('[ILAC] ⚠️ Could not determine case status, proceeding with caution...');
+  } else if (!caseStatus.toLowerCase().includes('work in progress')) {
+    console.log('[ILAC] ❌ SKIP: Case status is not "Work in Progress"');
+    console.log(`[ILAC]    Current status: "${caseStatus}"`);
+    return false;
+  } else {
+    console.log('[ILAC] ✓ Case status is Work in Progress');
+  }
 
-    const hasNoPreviousAttachments = userReports.length === 0;
-
-    // Check 2: Verify ownership
-    let currentOwner = ilacGetCurrentOwner();
-
-    if (!currentOwner) {
-      currentOwner = ilacGetCaseOwnerFromPage();
-    }
-
-    console.log('[ILAC] Current owner determined:', currentOwner);
-    console.log('[ILAC] Current user:', userId);
-
-    if (currentOwner && currentOwner !== userId) {
-      console.log('[ILAC] ❌ SKIP: User does not own case');
-      console.log(`[ILAC]    Owner: "${currentOwner}", User: "${userId}"`);
-      return false;
-    }
-
-    // Check 3: Verify user has activity if ownership unclear
-    if (currentOwner === userId) {
-      console.log('[ILAC] ✓ User owns the case');
-    } else if (hasNoPreviousAttachments) {
-      const userActivity = caseHistory?.entries?.filter(e => e?.updatedBy === userId) || [];
-      console.log('[ILAC] User activity entries:', userActivity.length);
-
-      if (userActivity.length > 0) {
-        const recentActivity = userActivity[0];
-        const activityAge = Date.now() - (recentActivity.updatingDate || 0);
-        const oneHour = 60 * 60 * 1000;
-
-        console.log('[ILAC] Most recent user activity:', recentActivity.operation);
-        console.log('[ILAC] Activity age (minutes):', Math.round(activityAge / 60000));
-
-        if (activityAge < oneHour) {
-          console.log('[ILAC] ✓ User has recent activity on this case (within 1 hour)');
-        } else {
-          console.log('[ILAC] ⚠️ User has activity but it\'s old, proceeding anyway since no previous attachments');
-        }
-      } else {
-        console.log('[ILAC] ❌ SKIP: No user activity found on this case');
-        return false;
-      }
-    } else {
-      console.log('[ILAC] ❌ SKIP: Could not verify ownership and user has previous attachments');
-      return false;
-    }
-
-    // Check 4: No previous attachments - VALID
-    if (hasNoPreviousAttachments) {
-      console.log('[ILAC] ✅ VALID: No previous attachments by user');
-      return true;
-    }
-
-    // Check 5: Has previous attachments - check if last one was today
-    userReports.sort((a, b) => (b.associationDate || 0) - (a.associationDate || 0));
-    const lastAttachmentDate = userReports[0]?.associationDate || 0;
-    console.log('[ILAC] Last attachment date:', new Date(lastAttachmentDate).toISOString());
-
-    // Get today's start (midnight)
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayStart = today.getTime();
-
-    // Get the day of last attachment (midnight of that day)
-    const lastAttachmentDay = new Date(lastAttachmentDate);
-    lastAttachmentDay.setHours(0, 0, 0, 0);
-    const lastAttachmentDayStart = lastAttachmentDay.getTime();
-
-    console.log('[ILAC] Today start:', new Date(todayStart).toISOString());
-    console.log('[ILAC] Last attachment day start:', new Date(lastAttachmentDayStart).toISOString());
-
-    // If last attachment was NOT today, allow new attachment
-    if (lastAttachmentDayStart < todayStart) {
-      console.log('[ILAC] ✅ VALID: Last attachment was not today (previous day or earlier)');
-      return true;
-    }
-
-    console.log('[ILAC] Last attachment was today, checking for ownership change...');
-
-    // Check 6: Last attachment was today - check if ownership changed after last attachment
-    let ownershipDate = 0;
-    if (caseHistory && caseHistory.entries) {
-      for (const entry of caseHistory.entries) {
-        if (entry?.newState?.owner === userId ||
-            entry?.owner === userId ||
-            (entry?.updatedBy === userId && entry?.operation?.toLowerCase().includes('assign'))) {
-          ownershipDate = entry.updatingDate || 0;
-          console.log('[ILAC] Ownership/assignment date:', new Date(ownershipDate).toISOString());
-          break;
-        }
-      }
-    }
-
-    if (ownershipDate === 0) {
-      console.log('[ILAC] ⚠️ Could not find ownership timestamp');
-      console.log('[ILAC] ❌ SKIP: Already attached today');
-      return false;
-    }
-
-    if (ownershipDate > lastAttachmentDate) {
-      console.log('[ILAC] ✅ VALID: Ownership is newer than last attachment (today)');
-      return true;
-    }
-
-    console.log('[ILAC] ❌ SKIP: Already attached today since last ownership change');
+  // Check 1: Already attached this browser session
+  if (ilacWasAttachedThisSession(caseId)) {
+    console.log('[ILAC] ❌ SKIP: Already attached in this browser session');
     return false;
   }
+
+  const allReports = caseAttachments?.Report || [];
+  const userReports = allReports.filter(r => r?.associatingAgent === userId);
+  console.log('[ILAC] Total attachments:', allReports.length);
+  console.log('[ILAC] User\'s attachments:', userReports.length);
+
+  const hasNoPreviousAttachments = userReports.length === 0;
+
+  // Check 2: Verify ownership
+  let currentOwner = ilacGetCurrentOwner();
+
+  if (!currentOwner) {
+    currentOwner = ilacGetCaseOwnerFromPage();
+  }
+
+  console.log('[ILAC] Current owner determined:', currentOwner);
+  console.log('[ILAC] Current user:', userId);
+
+  if (currentOwner && currentOwner !== userId) {
+    console.log('[ILAC] ❌ SKIP: User does not own case');
+    console.log(`[ILAC]    Owner: "${currentOwner}", User: "${userId}"`);
+    return false;
+  }
+
+  // Check 3: Verify user has activity if ownership unclear
+  if (currentOwner === userId) {
+    console.log('[ILAC] ✓ User owns the case');
+  } else if (hasNoPreviousAttachments) {
+    const userActivity = caseHistory?.entries?.filter(e => e?.updatedBy === userId) || [];
+    console.log('[ILAC] User activity entries:', userActivity.length);
+
+    if (userActivity.length > 0) {
+      const recentActivity = userActivity[0];
+      const activityAge = Date.now() - (recentActivity.updatingDate || 0);
+      const oneHour = 60 * 60 * 1000;
+
+      console.log('[ILAC] Most recent user activity:', recentActivity.operation);
+      console.log('[ILAC] Activity age (minutes):', Math.round(activityAge / 60000));
+
+      if (activityAge < oneHour) {
+        console.log('[ILAC] ✓ User has recent activity on this case (within 1 hour)');
+      } else {
+        console.log('[ILAC] ⚠️ User has activity but it\'s old, proceeding anyway since no previous attachments');
+      }
+    } else {
+      console.log('[ILAC] ❌ SKIP: No user activity found on this case');
+      return false;
+    }
+  } else {
+    console.log('[ILAC] ❌ SKIP: Could not verify ownership and user has previous attachments');
+    return false;
+  }
+
+  // Check 4: No previous attachments - VALID
+  if (hasNoPreviousAttachments) {
+    console.log('[ILAC] ✅ VALID: No previous attachments by user');
+    return true;
+  }
+
+  // Check 5: Has previous attachments - check if last one was today
+  userReports.sort((a, b) => (b.associationDate || 0) - (a.associationDate || 0));
+  const lastAttachmentDate = userReports[0]?.associationDate || 0;
+  console.log('[ILAC] Last attachment date:', new Date(lastAttachmentDate).toISOString());
+
+  // Get today's start (midnight)
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayStart = today.getTime();
+
+  // Get the day of last attachment (midnight of that day)
+  const lastAttachmentDay = new Date(lastAttachmentDate);
+  lastAttachmentDay.setHours(0, 0, 0, 0);
+  const lastAttachmentDayStart = lastAttachmentDay.getTime();
+
+  console.log('[ILAC] Today start:', new Date(todayStart).toISOString());
+  console.log('[ILAC] Last attachment day start:', new Date(lastAttachmentDayStart).toISOString());
+
+  // If last attachment was NOT today, allow new attachment
+  if (lastAttachmentDayStart < todayStart) {
+    console.log('[ILAC] ✅ VALID: Last attachment was not today (previous day or earlier)');
+    return true;
+  }
+
+  console.log('[ILAC] Last attachment was today, checking for ownership change...');
+
+  // Check 6: Last attachment was today - check if ownership changed after last attachment
+  let ownershipDate = 0;
+  if (caseHistory && caseHistory.entries) {
+    for (const entry of caseHistory.entries) {
+      if (entry?.newState?.owner === userId ||
+          entry?.owner === userId ||
+          (entry?.updatedBy === userId && entry?.operation?.toLowerCase().includes('assign'))) {
+        ownershipDate = entry.updatingDate || 0;
+        console.log('[ILAC] Ownership/assignment date:', new Date(ownershipDate).toISOString());
+        break;
+      }
+    }
+  }
+
+  if (ownershipDate === 0) {
+    console.log('[ILAC] ⚠️ Could not find ownership timestamp');
+    console.log('[ILAC] ❌ SKIP: Already attached today');
+    return false;
+  }
+
+  if (ownershipDate > lastAttachmentDate) {
+    console.log('[ILAC] ✅ VALID: Ownership is newer than last attachment (today)');
+    return true;
+  }
+
+  console.log('[ILAC] ❌ SKIP: Already attached today since last ownership change');
+  return false;
+}
+
+
 
   function ilacIsValidShipmentId(id) {
     if (!id || typeof id !== 'string') return false;
