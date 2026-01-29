@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     6.6.0
+// @version     6.6.1
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -3348,7 +3348,7 @@ function ilacIsValidCaseToAttachReport(userId, caseId, caseHistory, caseAttachme
 
   if (!caseStatus) {
     console.log('[ILAC] ⚠️ Could not determine case status, proceeding with caution...');
-  } else if (!caseStatus.toLowerCase().includes('work in progress')) {
+  } else if (!caseStatus.toLowerCase().replace(/-/g, ' ').includes('work in progress')) {
     console.log('[ILAC] ❌ SKIP: Case status is not "Work in Progress"');
     console.log(`[ILAC]    Current status: "${caseStatus}"`);
     return false;
