@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     6.6.2
+// @version     7.0.0
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -29,16 +29,13 @@
   // Feature Toggle System   //
   /////////////////////////////
 
-  const FEATURES = {
-    hygieneChecks: { name: "Hygiene Checks", default: false },
-    rcaiExpand: { name: "RCAI Expand Findings", default: true },
-    rcaiResults: { name: "RCAI Results Popup", default: true },
-    serenityExtractor: { name: "Serenity ID Extractor", default: true },
-    santosChecker: { name: "SANTOS Checker", default: true },
-    filterAllMID: { name: "Check Mapping", default: true },
-    openRCAI: { name: "Open RCAI", default: true },
-    ilacAutoAttach: { name: "ILAC Auto Attach", default: true }
-  };
+    const FEATURES = {
+        hygieneChecks: { name: "Hygiene Checks", default: false },
+        serenityExtractor: { name: "Serenity ID Extractor", default: true },
+        filterAllMID: { name: "Check Mapping", default: true },
+        ilacAutoAttach: { name: "ILAC Auto Attach", default: true },
+        languageCheck: { name: "Language & Overage Check", default: true }
+    };
 
   const STANDARD_BUTTON_STYLE = `
     position: fixed;
@@ -85,6 +82,7 @@
   `);
 
   function isFeatureEnabled(feature) {
+    if (!FEATURES[feature]) return true;
     return GM_getValue(feature, FEATURES[feature].default);
   }
 
@@ -3864,5 +3862,224 @@ function ilacIsValidCaseToAttachReport(userId, caseId, caseHistory, caseAttachme
   // Start
   ilacAutoAttachMain();
 }
+
+
+  ////////////////////////////////////////
+  // 9) Language & Overage Check        //
+  ////////////////////////////////////////
+
+  if (isFeatureEnabled('languageCheck')) {
+
+    // CJK, Arabic, Cyrillic, Thai, Hindi, Korean, Japanese — even 1 character is enough
+    const NON_LATIN_REGEX = /[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af\u0600-\u06ff\u0400-\u04ff\u0e00-\u0e7f\u0900-\u097f\u0980-\u09ff\u0a00-\u0a7f\u0b00-\u0b7f\u0c00-\u0c7f\u0d00-\u0d7f\u1100-\u11ff\u3130-\u318f\u3400-\u4dbf\uf900-\ufaff]/;
+
+    // French multi-word phrases only — impossible to appear in English
+    const FRENCH_WORDS_REGEX = /\b(s'il vous pla[iî]t|je suis|nous avons|vous avez|mon compte|cher vendeur|je voudrais|il y a|c'est|j'ai|n'est pas|n'a pas|n'ai pas|je ne|nous ne|vous ne|qu'est-ce|est-ce que|merci beaucoup|merci pour|bien cordialement|en attente|mise en vente|en rupture|pas encore|d[ée]j[àa] fait)\b/i;
+
+    // French accented characters — require 5+ to avoid false positives
+    const FRENCH_ACCENT_REGEX = /([àâäéèêëïîôùûüÿçœæÀÂÄÉÈÊËÏÎÔÙÛÜŸÇŒÆ].*){5,}/;
+
+    function langGetCaseIdFromUrl() {
+      const match = location.href.match(/caseId=([^&]+)/);
+      return match ? match[1] : null;
+    }
+
+    function langStoreFlags(caseId, nonEnglish, overage) {
+      if (!caseId) return;
+      const allFlags = JSON.parse(GM_getValue('langCheckFlags', '{}'));
+      allFlags[caseId] = {
+        nonEnglish: nonEnglish,
+        overage: overage,
+        timestamp: Date.now()
+      };
+      GM_setValue('langCheckFlags', JSON.stringify(allFlags));
+    }
+
+    function langGetFlags(caseId) {
+      if (!caseId) return { nonEnglish: false, overage: false };
+      try {
+        const allFlags = JSON.parse(GM_getValue('langCheckFlags', '{}'));
+        const data = allFlags[caseId];
+        if (!data) return { nonEnglish: false, overage: false };
+        if (Date.now() - data.timestamp > 24 * 60 * 60 * 1000) {
+          delete allFlags[caseId];
+          GM_setValue('langCheckFlags', JSON.stringify(allFlags));
+          return { nonEnglish: false, overage: false };
+        }
+        return { nonEnglish: data.nonEnglish || false, overage: data.overage || false };
+      } catch {
+        return { nonEnglish: false, overage: false };
+      }
+    }
+
+    function langScanForNonEnglish() {
+      const selectors = [
+        '[data-paragon-widget-id="initial-contact"]',
+        '[data-paragon-widget-id="correspondence-case-section"]'
+      ];
+
+      for (const sel of selectors) {
+        const elements = document.querySelectorAll(sel);
+        for (const el of elements) {
+          const text = el.innerText || '';
+
+          // Check 1: Any CJK, Arabic, Cyrillic, etc. character
+          if (NON_LATIN_REGEX.test(text)) {
+            console.log('[LangCheck] Non-Latin character found in:', sel);
+            return true;
+          }
+
+          // Check 2: Common French words
+          if (FRENCH_WORDS_REGEX.test(text)) {
+            console.log('[LangCheck] French text detected in:', sel);
+            return true;
+          }
+
+          // Check 3: Multiple French accented characters
+          if (FRENCH_ACCENT_REGEX.test(text)) {
+            console.log('[LangCheck] French accented text detected in:', sel);
+            return true;
+          }
+        }
+      }
+
+      // Fallback: case header
+      const header = document.getElementById('caseHeaderComponent');
+      if (header) {
+        const text = header.innerText || '';
+        if (NON_LATIN_REGEX.test(text)) {
+          console.log('[LangCheck] Non-Latin character found in case header');
+          return true;
+        }
+        if (FRENCH_WORDS_REGEX.test(text)) {
+          console.log('[LangCheck] French text found in case header');
+          return true;
+        }
+        if (FRENCH_ACCENT_REGEX.test(text)) {
+          console.log('[LangCheck] French accented text found in case header');
+          return true;
+        }
+      }
+
+      return false;
+    }
+
+    function langScanForOverage() {
+      const text = document.body.innerText || '';
+      const regex = /[\w\-:.]+,\s*(\d+)\s*,\s*please\s+investigate/gi;
+      let match;
+
+      while ((match = regex.exec(text)) !== null) {
+        const num = parseInt(match[1], 10);
+        if (num > 0) {
+          console.log('[LangCheck] Overage found:', match[0]);
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function langBuildAlertMessage(flags) {
+      const messages = [];
+
+      if (flags.nonEnglish) {
+        messages.push('• Non-English text detected. Translate the blurb if required.');
+      }
+      if (flags.overage) {
+        messages.push('• Perform Overage Investigation.');
+      }
+
+      if (messages.length === 0) return null;
+
+      return '⚠️ Case Alerts:\n\n' + messages.join('\n\n');
+    }
+
+    function langShowAlert(flags) {
+      const message = langBuildAlertMessage(flags);
+      if (message) alert(message);
+    }
+
+    // ---- PARAGON PAGE: Scan + Store + Alert on Review ----
+    if (/paragon-.*\.amazon\.com\/hz\/(view-case|case)\?caseId=/.test(location.href)) {
+
+      const caseId = langGetCaseIdFromUrl();
+      let detectedFlags = { nonEnglish: false, overage: false };
+      let alertListenerAttached = false;
+
+      function langCheckAndStore() {
+        const nonEnglish = langScanForNonEnglish();
+        const overage = langScanForOverage();
+        langStoreFlags(caseId, nonEnglish, overage);
+        return { nonEnglish, overage };
+      }
+
+      function langAttachReviewListener() {
+        if (alertListenerAttached) return;
+        if (!detectedFlags.nonEnglish && !detectedFlags.overage) return;
+
+        alertListenerAttached = true;
+        console.log('[LangCheck] Alerts active — NonEnglish:', detectedFlags.nonEnglish, 'Overage:', detectedFlags.overage);
+
+        document.addEventListener('click', (e) => {
+          const btn = e.target.closest('button, kat-button');
+          if (!btn) return;
+
+          const text = (btn.textContent || btn.getAttribute('label') || '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+          if (text === 'review') {
+            langShowAlert(detectedFlags);
+          }
+        }, true);
+      }
+
+      setTimeout(() => {
+        detectedFlags = langCheckAndStore();
+        langAttachReviewListener();
+      }, 3000);
+
+      const langParagonObserver = new MutationObserver(() => {
+        if (!detectedFlags.nonEnglish || !detectedFlags.overage) {
+          detectedFlags = langCheckAndStore();
+          langAttachReviewListener();
+        }
+      });
+      langParagonObserver.observe(document.body, { childList: true, subtree: true });
+    }
+
+    // ---- BEACON 2.0 PAGE: Only read flag + Alert on Submit Blurb ----
+    if (/console\.harmony\.a2z\.com\/beacon2\//.test(location.href)) {
+
+      const caseId = langGetCaseIdFromUrl();
+      let beaconAlertAttached = false;
+
+      function langAttachBeaconListener() {
+        if (beaconAlertAttached) return;
+
+        const flags = langGetFlags(caseId);
+        if (!flags.nonEnglish && !flags.overage) return;
+
+        beaconAlertAttached = true;
+        console.log('[LangCheck] Beacon alerts active for case ' + caseId + ' — NonEnglish:', flags.nonEnglish, 'Overage:', flags.overage);
+
+        document.addEventListener('click', (e) => {
+          const btn = e.target.closest('button, kat-button, [role="button"]');
+          if (!btn) return;
+
+          const text = (btn.textContent || btn.getAttribute('label') || '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+          if (text.includes('submit blurb') || text === 'submit') {
+            langShowAlert(flags);
+          }
+        }, true);
+      }
+
+      setTimeout(langAttachBeaconListener, 3000);
+
+      const langBeaconObserver = new MutationObserver(langAttachBeaconListener);
+      langBeaconObserver.observe(document.body, { childList: true, subtree: true });
+    }
+  }
+
+
 
 })();
