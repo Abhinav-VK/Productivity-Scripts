@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     7.0.1
+// @version     7.1.1
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -11,6 +11,11 @@
 // @match       https://fba-registration-console-na.aka.amazon.com/*
 // @match       https://moonraker-na.aka.amazon.com/serenity/open*
 // @match       https://fba-fnsku-commingling-console-na.aka.amazon.com/tool/fnsku-mappings-tool*
+// @match       https://console-na.seller-reimbursement.amazon.dev/*
+// @match       https://console-eu.seller-reimbursement.amazon.dev/*
+// @connect     paragon-na.amazon.com
+// @connect     paragon-eu.amazon.com
+// @require     https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.8/purify.min.js
 // @require     https://ajax.googleapis.com/ajax/libs/jquery/2.1.4/jquery.min.js
 // @grant       GM_setClipboard
 // @grant       GM_addStyle
@@ -34,7 +39,8 @@
         serenityExtractor: { name: "Serenity ID Extractor", default: true },
         filterAllMID: { name: "Check Mapping", default: true },
         ilacAutoAttach: { name: "ILAC Auto Attach", default: true },
-        languageCheck: { name: "Language & Overage Check", default: true }
+        languageCheck: { name: "Language & Overage Check", default: true },
+        rmsAutoAttach: { name: "RMS Auto Attach", default: true }
     };
 
   const STANDARD_BUTTON_STYLE = `
@@ -4080,6 +4086,217 @@ function ilacIsValidCaseToAttachReport(userId, caseId, caseHistory, caseAttachme
     }
   }
 
+
+
+  ////////////////////////////////////////
+  // 10) RMS ID Auto Attach             //
+  ////////////////////////////////////////
+
+  if (isFeatureEnabled('rmsAutoAttach') &&
+      /console-(na|eu)\.seller-reimbursement\.amazon\.dev/.test(location.href)) {
+
+    var RMS_TOKEN;
+
+    function rmsGetToken() {
+      try {
+        const region = window.location.href.match(/na|eu/)[0];
+        GM_xmlhttpRequest({
+          method: "GET",
+          url: `https://paragon-${region}.amazon.com/hz/search`,
+          onload: function(response) {
+            if (!response.responseText.match(/csrfToken:\s"(\S*)"/)) {
+              $('#paragon-status .message').text("Error").css('color', 'red');
+              alert("RMS ID Auto Attach:\n\nIssue with Paragon detected. Try reloading Paragon and reload this page");
+              return;
+            }
+            RMS_TOKEN = DOMPurify.sanitize(response.responseText.match(/csrfToken:\s"(\S*)"/)[1]);
+            $('#paragon-status .message').text("Ready").css('color', 'green');
+          },
+          onerror: function(response) {
+            $('#paragon-status .message').text("Error").css('color', 'red');
+            alert("RMS ID Auto Attach:\n\nIssue with Paragon detected.\nTry reloading Paragon and reload this page to use RMS ID Auto Attach");
+          }
+        });
+      } catch (error) {
+        $('#paragon-status .message').text("Error").css('color', 'red');
+        alert("RMS ID Auto Attach:\n\nIssue with Paragon detected.\nTry reloading Paragon and reload this page to use RMS ID Auto Attach");
+      }
+    }
+
+    async function rmsGetTenantId(caseId, region) {
+      return new Promise((resolve, reject) => {
+        GM_xmlhttpRequest({
+          method: 'POST',
+          url: `https://paragon-${region}.amazon.com/hz/api/search`,
+          headers: { "pgn-csrf-token": RMS_TOKEN, "Content-Type": "application/json;charset=UTF-8" },
+          data: JSON.stringify({
+            "query": `${caseId}`,
+            "searchAllTenants": true,
+            "contentTypes": [{ "contentType": "CASE", "pageSize": 100, "pageNum": 1, "sortField": "queue", "sortOrder": "desc" }]
+          }),
+          onload: function(response) {
+            try {
+              const results = JSON.parse(response.responseText)?.payload?.resultsByContentType?.CASE?.results;
+              if (results) {
+                const caseResults = results.filter(result => String(result.document.caseId) === String(caseId));
+                const tenantId = DOMPurify.sanitize(caseResults?.[0]?.document?.tenantId);
+                resolve(tenantId);
+              } else {
+                resolve(null);
+              }
+            } catch (error) {
+              console.error("getTenantId Search Response Parsing Error!:\n", error);
+              resolve(null);
+            }
+          },
+          onerror: function(error) {
+            console.error("getTenantId Error:\n", error);
+            reject(error);
+          }
+        });
+      });
+    }
+
+    function rmsAttachToCaseRecursive(rmsId, caseId, tenantId, merchId, region, start, stop) {
+      try {
+        GM_xmlhttpRequest({
+          method: 'POST',
+          url: `https://paragon-${region}.amazon.com/hz/action/update-related-items`,
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', "pgn-csrf-token": RMS_TOKEN, "case-tenant-id": tenantId },
+          data: `updateAction=add&srcId=${caseId}&srcType=Case&dstIds=${rmsId}&dstType=RMSID&merchantId=${merchId}`,
+          onload: function(response) {
+            if (start <= stop) {
+              if (response.status === 200) {
+                const res = JSON.parse(response.responseText);
+                if (res?.results?.data?.success) {
+                  rmsVerifyAttachedListRecursive(rmsId, caseId, tenantId, merchId, region, start, stop);
+                } else {
+                  rmsAttachToCaseRecursive(rmsId, caseId, tenantId, merchId, region, start + 1, stop);
+                }
+              } else {
+                rmsAttachToCaseRecursive(rmsId, caseId, tenantId, merchId, region, start + 1, stop);
+              }
+            } else {
+              rmsUpdateFailedHTML(rmsId, caseId, region);
+            }
+          },
+          onerror: function(response) {
+            rmsUpdateFailedHTML(rmsId, caseId, region);
+            $('#attach-status .message').text("Error").css('color', 'red');
+          }
+        });
+      } catch (e) {
+        rmsUpdateFailedHTML(rmsId, caseId, region);
+        $('#paragon-status .message').text("Error").css('color', 'red');
+      }
+    }
+
+    function rmsVerifyAttachedListRecursive(rmsId, caseId, tenantId, merchId, region, start, stop) {
+      try {
+        GM_xmlhttpRequest({
+          method: 'GET',
+          url: `https://paragon-${region}.amazon.com/hz/api/get-all-related-items?caseId=${caseId}`,
+          headers: { "pgn-csrf-token": RMS_TOKEN, "case-tenant-id": tenantId },
+          onload: function(response) {
+            if (response.status === 200) {
+              const res = JSON.parse(response.responseText);
+              const rmsIds = res?.RMSID;
+
+              if (!rmsIds || !rmsIds.length) {
+                if (start <= stop) {
+                  rmsAttachToCaseRecursive(rmsId, caseId, tenantId, merchId, region, start + 1, stop);
+                } else {
+                  rmsUpdateFailedHTML(rmsId, caseId, region);
+                }
+                return;
+              }
+
+              for (let i = 0; i < rmsIds.length; i++) {
+                if (rmsIds[i]?.id === rmsId) {
+                  rmsUpdateSuccessHTML(rmsId, caseId, region);
+                  return true;
+                }
+              }
+
+              if (start <= stop) {
+                rmsAttachToCaseRecursive(rmsId, caseId, tenantId, merchId, region, start + 1, stop);
+              } else {
+                rmsUpdateFailedHTML(rmsId, caseId, region);
+              }
+            } else {
+              rmsAttachToCaseRecursive(rmsId, caseId, tenantId, merchId, region, start + 1, stop);
+            }
+          },
+          onerror: function(response) {
+            $('#attach-status .message').text("Error").css('color', 'red');
+          }
+        });
+      } catch (error) {
+        $('#paragon-status .message').text("Error").css('color', 'red');
+      }
+    }
+
+    function rmsAddStatusHTML() {
+      const html = `
+        <div id="attach-status-section" style="position: absolute;margin: -40% 0px 0px 84%;border: solid 2px;height: 125px;width: 280px;font-size: 14px;font-weight: bold;">
+          <h3 style="text-align: center;padding: 15px 0px 15px 0px;">RMS ID Auto Attach</h3>
+          <div id="paragon-status" style="padding:0px 0px 12px 14px;">
+            <text style="padding: 0px 10px 0px 38px;">Paragon Status:</text><text class="message">Loading...</text>
+          </div>
+          <div id="attach-status" style="padding:0px 0px 0px 12px;">
+            <text style="padding-right: 10px;">RMS ID Attach Status:</text><text class="message" style="color:rgb(227, 179, 38)">Not Attached</text>
+          </div>
+        </div>`;
+
+      $('#content').append(html);
+      (RMS_TOKEN) ? $('#paragon-status .message').text("Ready").css('color', 'green') : $('#paragon-status .message').text("Error").css('color', 'red');
+    }
+
+    function rmsUpdateSuccessHTML(rmsId, caseId, region) {
+      $('#attach-message').text(`Successfully attached RMS ID to Paragon Case ID!\n\nRMS ID: ${rmsId}\nParagon Case ID: ${caseId}\n\nThe Paragon Case ID page needs to reload to show the attachment\n`);
+      $('#attach-message').append(`<a href="https://paragon-${region}.amazon.com/hz/case?caseId=${caseId}" target="_blank">https://paragon-${region}.amazon.com/hz/case?caseId=${caseId}</a>`);
+      $('#attach-button').text("Successfully attached!");
+      $('#attach-status .message').text("Attached").css('color', 'green');
+    }
+
+    function rmsUpdateFailedHTML(rmsId, caseId, region) {
+      $('#attach-message').text(`RMS ID was unsuccessfully attached\n\nRMS ID: ${rmsId}\nParagon Case ID: ${caseId}\n\nPlease attach it manually at\n`);
+      $('#attach-message').append(`<a href="https://paragon-${region}.amazon.com/hz/case?caseId=${caseId}" target="_blank">https://paragon-${region}.amazon.com/hz/case?caseId=${caseId}</a>`);
+      $('#attach-button').text("Unsuccessfully attached!");
+      $('#attach-status .message').text("Failed").css('color', 'red');
+    }
+
+    function rmsAddCreateButtonListener() {
+      $("#single-rms-create").click(async function() {
+        const region = window.location.href.match(/na|eu/)[0];
+        const caseId = $('#caseId').val();
+        const merchId = $('#merchantCustomerId').val();
+        const tenantId = await rmsGetTenantId(caseId, region);
+
+        const delayScript = setInterval(function() {
+          if ($('a[href^="/rms/view/transaction/"]').length > 0) {
+            clearInterval(delayScript);
+            const rmsId = $('a[href^="/rms/view/transaction/"]').text();
+
+            $('a[href^="/rms/view/transaction/"]').parent().after(`<br><p id="attach-message" style="white-space:pre-line;">Attaching RMS ID ${rmsId} to Paragon Case ID ${caseId}...</p>`);
+            $('a[href^="/rms/view/transaction/"]').parent().parent().find('kat-button').text("Loading RMS ID Auto Attach...").attr("id", "attach-button");
+
+            rmsAttachToCaseRecursive(rmsId, caseId, tenantId, merchId, region, 1, 10);
+          }
+        }, 25);
+      });
+    }
+
+    // Initialize RMS Auto Attach
+    rmsGetToken();
+    const rmsLoadInterval = setInterval(function() {
+      if ($('#single-rms-create').length > 0) {
+        clearInterval(rmsLoadInterval);
+        rmsAddStatusHTML();
+        rmsAddCreateButtonListener();
+      }
+    }, 25);
+  }
 
 
 })();
