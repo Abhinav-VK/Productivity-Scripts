@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     7.1.1
+// @version     7.2.0
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -1304,8 +1304,11 @@ if (isFeatureEnabled('serenityExtractor') &&
     /moonraker-na\.aka\.amazon\.com\/serenity\/open/.test(location.href)) {
 
   let isExtracting = false;
+  let extractedIds = '';
+  let extractedResultsArray = []; // Array of [id, qty] pairs for batch processing
+  let batchIndex = 0;
+  const BATCH_QTY_LIMIT = 300;
 
-  // Add styles for Serenity panel
   GM_addStyle(`
     #serenity-extract-panel {
       position: fixed;
@@ -1546,6 +1549,13 @@ if (isFeatureEnabled('serenityExtractor') &&
       position: relative;
     }
 
+    .serenity-btn-row {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
     .serenity-copy-again-btn {
       display: none;
       background: #000000;
@@ -1569,6 +1579,28 @@ if (isFeatureEnabled('serenityExtractor') &&
       transform: translateY(0);
     }
 
+    .serenity-copy-batch-btn {
+      display: none;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 10px 24px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .serenity-copy-batch-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+
+    .serenity-copy-batch-btn:active {
+      transform: translateY(0);
+    }
+
     .serenity-copy-feedback {
       display: block;
       margin-top: 8px;
@@ -1584,8 +1616,7 @@ if (isFeatureEnabled('serenityExtractor') &&
     }
   `);
 
-  // Store extracted IDs for copy again functionality
-  let extractedIds = '';
+  let extractedIds_stored = '';
 
   function toYMD(str) {
     const p = str.split('/');
@@ -1690,7 +1721,10 @@ if (isFeatureEnabled('serenityExtractor') &&
             </div>
           </div>
           <div class="serenity-copy-again-container">
-            <button class="serenity-copy-again-btn" id="serenity-copy-again-btn">📋 Copy Again</button>
+            <div class="serenity-btn-row">
+              <button class="serenity-copy-again-btn" id="serenity-copy-again-btn">📋 Copy All</button>
+              <button class="serenity-copy-batch-btn" id="serenity-copy-batch-btn">📦 Copy in batches</button>
+            </div>
             <span class="serenity-copy-feedback" id="serenity-copy-feedback">✓ Copied!</span>
           </div>
         </div>
@@ -1702,9 +1736,8 @@ if (isFeatureEnabled('serenityExtractor') &&
 
     document.getElementById('close-serenity-panel').onclick = () => panel.remove();
     document.getElementById('start-serenity-extract').onclick = startExtraction;
-
-    // Copy Again button handler
     document.getElementById('serenity-copy-again-btn').onclick = copyAgain;
+    document.getElementById('serenity-copy-batch-btn').onclick = copyNextBatch;
 
     const input = document.getElementById('serenity-date-input');
     input.focus();
@@ -1716,13 +1749,50 @@ if (isFeatureEnabled('serenityExtractor') &&
   function copyAgain() {
     if (extractedIds) {
       GM_setClipboard(extractedIds);
-      const feedback = document.getElementById('serenity-copy-feedback');
-      if (feedback) {
-        feedback.classList.add('visible');
-        setTimeout(() => {
-          feedback.classList.remove('visible');
-        }, 2000);
-      }
+      showFeedback('✓ Copied all!');
+    }
+  }
+
+  function copyNextBatch() {
+    if (!extractedResultsArray.length) return;
+
+    const batchIds = [];
+    let batchQty = 0;
+
+    while (batchIndex < extractedResultsArray.length) {
+      const [id, qty] = extractedResultsArray[batchIndex];
+      batchIds.push(id);
+      batchQty += qty;
+      batchIndex++;
+
+      if (batchQty >= BATCH_QTY_LIMIT) break;
+    }
+
+    if (batchIds.length === 0) return;
+
+    const batchStr = batchIds.join(',');
+    GM_setClipboard(batchStr);
+
+    showFeedback(`✓ Copied ${batchQty} events!`);
+
+    const batchBtn = document.getElementById('serenity-copy-batch-btn');
+    if (batchIndex >= extractedResultsArray.length) {
+      // All batches done — reset
+      batchIndex = 0;
+      batchBtn.textContent = '📦 Copy in batches';
+    } else {
+      batchBtn.textContent = '📦 Copy next batch';
+    }
+  }
+
+  function showFeedback(message) {
+    const feedback = document.getElementById('serenity-copy-feedback');
+    if (feedback) {
+      feedback.textContent = message;
+      feedback.classList.add('visible');
+      setTimeout(() => {
+        feedback.classList.remove('visible');
+      }, 3000);
     }
   }
 
@@ -1754,6 +1824,17 @@ if (isFeatureEnabled('serenityExtractor') &&
     if (copyAgainBtn) {
       copyAgainBtn.style.display = 'inline-block';
     }
+
+    // Show batch button only if total quantity > 300
+    const batchBtn = document.getElementById('serenity-copy-batch-btn');
+    if (batchBtn) {
+      if (total > BATCH_QTY_LIMIT) {
+        batchBtn.style.display = 'inline-block';
+        batchBtn.textContent = '📦 Copy in batches';
+      } else {
+        batchBtn.style.display = 'none';
+      }
+    }
   }
 
   function hideResults() {
@@ -1764,6 +1845,10 @@ if (isFeatureEnabled('serenityExtractor') &&
     const copyAgainBtn = document.getElementById('serenity-copy-again-btn');
     if (copyAgainBtn) {
       copyAgainBtn.style.display = 'none';
+    }
+    const batchBtn = document.getElementById('serenity-copy-batch-btn');
+    if (batchBtn) {
+      batchBtn.style.display = 'none';
     }
   }
 
@@ -1788,7 +1873,9 @@ if (isFeatureEnabled('serenityExtractor') &&
     isExtracting = true;
     button.disabled = true;
     hideResults();
-    extractedIds = ''; // Reset stored IDs
+    extractedIds = '';
+    extractedResultsArray = [];
+    batchIndex = 0;
 
     const endDate = addDays(startDate, 46);
     const allResults = new Map();
@@ -1835,12 +1922,15 @@ if (isFeatureEnabled('serenityExtractor') &&
     const ids = Array.from(allResults.keys()).join(',');
     const total = Array.from(allResults.values()).reduce((a, b) => a + b, 0);
 
-    // Store IDs for copy again functionality
+    // Store for copy all
     extractedIds = ids;
+
+    // Store as array for batch processing
+    extractedResultsArray = Array.from(allResults.entries());
+    batchIndex = 0;
 
     GM_setClipboard(ids);
 
-    // Updated status message
     showStatus(`Copied ${allResults.size} IDs to Clipboard`, 'success');
     showResults(allResults.size, total, pageCount, startDate, endDate);
   }
@@ -1853,7 +1943,6 @@ if (isFeatureEnabled('serenityExtractor') &&
   btn.addEventListener('click', showSerenityPanel);
   document.body.appendChild(btn);
 }
-
 
 
 
