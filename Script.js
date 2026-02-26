@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     7.2.1
+// @version     7.2.2
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -1041,68 +1041,49 @@
     }
 
     function copyData() {
-      const includeBlurb = document.getElementById('include-blurb')?.checked ?? true;
-      const includeNotes = document.getElementById('include-notes')?.checked ?? true;
+  const includeBlurb = document.getElementById('include-blurb')?.checked ?? true;
+  const includeNotes = document.getElementById('include-notes')?.checked ?? true;
 
-      // Build dynamic headers and widths based on selections
-      const allHeaders = ['#','FNSKU','DECISION','RC SUMMARY','DISC','FAULT','FOUND','DENY','RMS','BLURB','NOTES'];
-      const allWidths = [4,12,12,18,6,10,8,8,8,34,20];
+  let tF = 0, tD = 0, tR = 0;
+  const rows = document.querySelectorAll('#rcai-body tr');
+  let out = `RCAI RESULTS (${rows.length} FNSKUs):\n\n`;
 
-      const hdr = [];
-      const widths = [];
-      const includeColumn = [];
+  rows.forEach(r => {
+    const cells = Array.from(r.querySelectorAll('td'));
+    const get = (i) => cells[i]?.querySelector('input')?.value?.trim() || '-';
 
-      allHeaders.forEach((h, i) => {
-        if (i === 9 && !includeBlurb) {
-          includeColumn.push(false);
-          return;
-        }
-        if (i === 10 && !includeNotes) {
-          includeColumn.push(false);
-          return;
-        }
-        includeColumn.push(true);
-        hdr.push(h);
-        widths.push(allWidths[i]);
-      });
+    const num = get(0);
+    const fnsku = get(1);
+    const decision = get(2);
+    const rcSummary = get(3);
+    const disc = get(4);
+    const fault = get(5);
+    const found = get(6);
+    const deny = get(7);
+    const rms = get(8);
+    const blurb = get(9);
+    const notes = get(10);
 
-      let out = 'RCAI RESULTS:\n';
-      out += '|' + hdr.map((h,i) => h.padEnd(widths[i])).join('|') + '\n';
+    tF += parseFloat(found) || 0;
+    tD += parseFloat(deny) || 0;
+    tR += parseFloat(rms) || 0;
 
-      let tF=0, tD=0, tR=0;
+    out += `${num}. ${fnsku} | ${decision} | ${rcSummary} | Disc: ${disc} | ${fault} | F:${found} D:${deny} R:${rms}`;
 
-      document.querySelectorAll('#rcai-body tr').forEach(r => {
-        const cells = Array.from(r.querySelectorAll('td')).slice(0,11);
-        const vals = [];
-
-        cells.forEach((cell, i) => {
-          if (!includeColumn[i]) return;
-
-          let v = cell.querySelector('input')?.value || '-';
-          if (i === 6) tF += parseFloat(v) || 0;
-          if (i === 7) tD += parseFloat(v) || 0;
-          if (i === 8) tR += parseFloat(v) || 0;
-
-          const widthIndex = hdr.indexOf(allHeaders[i]);
-          vals.push(v.slice(0, widths[widthIndex]-1).padEnd(widths[widthIndex]));
-        });
-
-        out += '|' + vals.join('|') + '\n';
-      });
-
-      // Build totals row
-      const total = hdr.map((h, i) => {
-        const originalIndex = allHeaders.indexOf(h);
-        if (originalIndex === 5) return 'TOTALS →'.padEnd(widths[i]);
-        if (originalIndex === 6) return tF.toString().padEnd(widths[i]);
-        if (originalIndex === 7) return tD.toString().padEnd(widths[i]);
-        if (originalIndex === 8) return tR.toString().padEnd(widths[i]);
-        return ''.padEnd(widths[i]);
-      });
-
-      out += '|' + total.join('|') + '\n';
-      navigator.clipboard.writeText(out);
+    if (includeBlurb && blurb && blurb !== '-') {
+      out += `\n   Blurb: ${blurb}`;
     }
+    if (includeNotes && notes && notes !== '-') {
+      out += `\n   Notes: ${notes}`;
+    }
+
+    out += '\n';
+  });
+
+  out += `\nTOTALS: Found: ${tF} | Deny: ${tD} | RMS: ${tR}\n`;
+
+  navigator.clipboard.writeText(out);
+}
 
     function autofillFromPage(append=false) {
       console.log('Starting autofillFromPage, append:', append);
@@ -2020,39 +2001,40 @@ if (isFeatureEnabled('serenityExtractor') &&
     }
 
     function addSANTOSButton() {
-      if (document.getElementById('santos-check-btn')) return;
+  if (document.getElementById('santos-check-link')) return;
 
-      const buttons = document.querySelectorAll('button, input[type="button"], a');
-      let copyMIDButton = null;
+  const buttons = document.querySelectorAll('button, input[type="button"], a');
+  let copyMIDButton = null;
 
-      for (let btn of buttons) {
-        if (btn.textContent && btn.textContent.trim() === 'Copy MID') {
-          copyMIDButton = btn;
-          break;
-        }
-      }
-
-      if (!copyMIDButton) return;
-
-      const santosBtn = document.createElement('button');
-      santosBtn.id = 'santos-check-btn';
-      santosBtn.textContent = 'Check for SANTOS';
-      santosBtn.style.cssText = copyMIDButton.style.cssText;
-      santosBtn.className = copyMIDButton.className;
-      santosBtn.style.marginLeft = '10px';
-
-      santosBtn.addEventListener('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        checkForSANTOS();
-      });
-
-      if (copyMIDButton.nextSibling) {
-        copyMIDButton.parentNode.insertBefore(santosBtn, copyMIDButton.nextSibling);
-      } else {
-        copyMIDButton.parentNode.appendChild(santosBtn);
-      }
+  for (let btn of buttons) {
+    if (btn.textContent && btn.textContent.trim() === 'Copy MID') {
+      copyMIDButton = btn;
+      break;
     }
+  }
+
+  if (!copyMIDButton) return;
+
+  // Create separator text node " | "
+  const separator = document.createTextNode(' | ');
+
+  // Create link matching "Summary" style
+  const santosLink = document.createElement('a');
+  santosLink.id = 'santos-check-link';
+  santosLink.href = '#';
+  santosLink.className = 'a-link-normal';
+  santosLink.textContent = 'Check SANTOS';
+
+  santosLink.addEventListener('click', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    checkForSANTOS();
+  });
+
+  // Insert before Copy MID: "Check SANTOS | Copy MID"
+  copyMIDButton.parentNode.insertBefore(santosLink, copyMIDButton);
+  copyMIDButton.parentNode.insertBefore(separator, copyMIDButton);
+}
 
     setTimeout(addSANTOSButton, 1000);
     setTimeout(addSANTOSButton, 3000);
@@ -2597,14 +2579,26 @@ panel.mappingObserver = mappingObserver;
             addResultLine(`Page ${pageCount}: No matches`);
           }
 
-          const nextBtn = findNextButton();
+            const nextBtn = findNextButton();
           if (!nextBtn) break;
 
-          nextBtn.click();
-          const pageLoadSuccess = await waitForPageLoad(5000);
-          if (!pageLoadSuccess) { addResultLine(`Page ${pageCount}: Page load timeout`); break; }
+          // Capture current content before clicking next
+          const rowsBefore = document.querySelectorAll('table tr').length;
+          const firstRowText = document.querySelector('table tr:nth-child(2)')?.textContent?.trim() || '';
 
-          await new Promise(resolve => setTimeout(resolve, 800));
+          nextBtn.click();
+          const pageLoadSuccess = await waitForPageLoad(3000);
+
+          // Check if page actually changed after clicking next
+          const rowsAfter = document.querySelectorAll('table tr').length;
+          const firstRowTextAfter = document.querySelector('table tr:nth-child(2)')?.textContent?.trim() || '';
+
+          if (!pageLoadSuccess || (rowsBefore === rowsAfter && firstRowText === firstRowTextAfter)) {
+            addResultLine(`Page ${pageCount}: No more pages`);
+            break;
+          }
+
+          await new Promise(resolve => setTimeout(resolve, 300));
         }
 
         if (found) {
@@ -2858,8 +2852,9 @@ panel.mappingObserver = mappingObserver;
     setTimeout(createFloatingButton, 2000);
     setTimeout(createFloatingButton, 5000);
 
+// eslint-disable-next-line no-undef
     const observer = new MutationObserver(() => {
-      if (!document.getElementById('fnsku-mid-search-btn')) createFloatingButton();
+        if (!document.getElementById('santos-check-link')) addSANTOSButton();
     });
     observer.observe(document.body, { childList: true, subtree: true });
   }
