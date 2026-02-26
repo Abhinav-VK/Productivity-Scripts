@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     7.2.2
+// @version     7.2.3
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -1807,6 +1807,7 @@ if (isFeatureEnabled('serenityExtractor') &&
     const copyAgainBtn = document.getElementById('serenity-copy-again-btn');
     if (copyAgainBtn) {
       copyAgainBtn.style.display = 'inline-block';
+      copyAgainBtn.textContent = total >= 300 ? '📋 Copy All' : '📋 Copy Again';
     }
 
     // Show batch button only if total quantity > 300
@@ -2019,18 +2020,18 @@ if (isFeatureEnabled('serenityExtractor') &&
   const separator = document.createTextNode(' | ');
 
   // Create link matching "Summary" style
+  // Create link matching "Summary" style visually but without Amazon's class
   const santosLink = document.createElement('a');
   santosLink.id = 'santos-check-link';
-  santosLink.href = '#';
-  santosLink.className = 'a-link-normal';
+  santosLink.href = 'javascript:void(0)';
   santosLink.textContent = 'Check SANTOS';
+  santosLink.style.cssText = 'color:#0066c0; text-decoration:none; cursor:pointer;';
 
   santosLink.addEventListener('click', function(e) {
     e.preventDefault();
     e.stopPropagation();
     checkForSANTOS();
   });
-
   // Insert before Copy MID: "Check SANTOS | Copy MID"
   copyMIDButton.parentNode.insertBefore(santosLink, copyMIDButton);
   copyMIDButton.parentNode.insertBefore(separator, copyMIDButton);
