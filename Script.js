@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     7.2.3
+// @version     7.2.4
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -2016,23 +2016,44 @@ if (isFeatureEnabled('serenityExtractor') &&
 
   if (!copyMIDButton) return;
 
-  // Create separator text node " | "
+  // Extract MID now so we can set a real href
+  const pageText = document.body.innerText;
+  const merchantMatch = pageText.match(/(?:Merchant[^\n]*?|Customer[^\n]*?ID:)\s*([A-Z0-9]+)\s*\(\s*(\d{7,15})\s*\)/i);
+  let mid = null;
+
+  if (merchantMatch && merchantMatch[2]) {
+    mid = merchantMatch[2];
+  } else {
+    // Try from Copy MID button's parent
+    const parentElement = copyMIDButton.closest('tr') || copyMIDButton.parentElement;
+    if (parentElement) {
+      const midMatch = parentElement.textContent.match(/\((\d{7,15})\)/);
+      if (midMatch && midMatch[1]) mid = midMatch[1];
+    }
+  }
+
   const separator = document.createTextNode(' | ');
 
-  // Create link matching "Summary" style
-  // Create link matching "Summary" style visually but without Amazon's class
   const santosLink = document.createElement('a');
   santosLink.id = 'santos-check-link';
-  santosLink.href = 'javascript:void(0)';
   santosLink.textContent = 'Check SANTOS';
   santosLink.style.cssText = 'color:#0066c0; text-decoration:none; cursor:pointer;';
 
+  if (mid) {
+    // Set real URL so middle-click and right-click work
+    santosLink.href = `https://fba-registration-console-na.aka.amazon.com/merchants/${mid}`;
+    santosLink.target = '_blank';
+  } else {
+    santosLink.href = '#';
+  }
+
+  // Left-click still uses our custom function
   santosLink.addEventListener('click', function(e) {
     e.preventDefault();
     e.stopPropagation();
     checkForSANTOS();
   });
-  // Insert before Copy MID: "Check SANTOS | Copy MID"
+
   copyMIDButton.parentNode.insertBefore(santosLink, copyMIDButton);
   copyMIDButton.parentNode.insertBefore(separator, copyMIDButton);
 }
