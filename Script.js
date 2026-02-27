@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     7.2.4
+// @version     8.0.0
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -41,6 +41,7 @@
         hygieneChecks: { name: "Hygiene Checks", default: false },
         serenityExtractor: { name: "Serenity ID Extractor", default: true },
         filterAllMID: { name: "Check Mapping", default: true },
+        checkMappingILAC: { name: "Check Mapping (ILAC)", default: true },
         ilacAutoAttach: { name: "ILAC Auto Attach", default: true },
         languageCheck: { name: "Language & Overage Check", default: true },
         rmsAutoAttach: { name: "RMS Auto Attach", default: true }
@@ -2038,6 +2039,18 @@ if (isFeatureEnabled('serenityExtractor') &&
   santosLink.id = 'santos-check-link';
   santosLink.textContent = 'Check SANTOS';
   santosLink.style.cssText = 'color:#0066c0; text-decoration:none; cursor:pointer;';
+
+
+        // Add hover effects matching other ILAC links
+  santosLink.addEventListener('mouseenter', function() {
+    santosLink.style.color = '#001F5C';
+    santosLink.style.textDecoration = 'underline';
+  });
+
+  santosLink.addEventListener('mouseleave', function() {
+    santosLink.style.color = '#0066c0';
+    santosLink.style.textDecoration = 'none';
+  });
 
   if (mid) {
     // Set real URL so middle-click and right-click work
@@ -4406,6 +4419,1428 @@ function ilacIsValidCaseToAttachReport(userId, caseId, caseHistory, caseAttachme
       }
     }, 25);
   }
+
+
+
+      ////////////////////////////////////////
+  // 11) Check Mapping from ILAC        //
+  ////////////////////////////////////////
+
+  if (isFeatureEnabled('checkMappingILAC')) {
+
+    const CM_STORAGE_KEY = 'checkMappingAutoFillParams';
+
+    const CM_MARKETPLACE_MAP = {
+        USD: 'ATVPDKIKX0DER',
+        CAD: 'A2EUQ1WTGCTBG2',
+        MXN: 'A1AM78C64UM0Y8'
+    };
+
+    function cmStoreParams(params) {
+        GM_setValue(CM_STORAGE_KEY, JSON.stringify({
+            ...params,
+            timestamp: Date.now()
+        }));
+    }
+
+    function cmGetParams() {
+        try {
+            const raw = GM_getValue(CM_STORAGE_KEY, '{}');
+            const data = JSON.parse(raw);
+            if (!data.timestamp || (Date.now() - data.timestamp > 120000)) {
+                return null;
+            }
+            return data;
+        } catch {
+            return null;
+        }
+    }
+
+    function cmClearParams() {
+        GM_setValue(CM_STORAGE_KEY, '{}');
+    }
+
+    function cmSleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    function cmSetNativeValue(element, value) {
+        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+        const nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+
+        if (element.tagName === 'TEXTAREA' && nativeTextAreaValueSetter) {
+            nativeTextAreaValueSetter.call(element, value);
+        } else if (nativeInputValueSetter) {
+            nativeInputValueSetter.call(element, value);
+        } else {
+            element.value = value;
+        }
+
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+        element.dispatchEvent(new Event('blur', { bubbles: true }));
+        element.dispatchEvent(new Event('keyup', { bubbles: true }));
+    }
+
+    function cmSetSelectValue(selectEl, value) {
+        const options = Array.from(selectEl.options);
+        const valueLower = value.toLowerCase();
+        let found = false;
+
+        for (const opt of options) {
+            if (
+                opt.value.toLowerCase().includes(valueLower) ||
+                opt.textContent.toLowerCase().includes(valueLower)
+            ) {
+                selectEl.value = opt.value;
+                found = true;
+                break;
+            }
+        }
+
+        if (found) {
+            selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+            selectEl.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        return found;
+    }
+
+    function cmSetCheckbox(checkbox, checked) {
+        if (checkbox.checked !== checked) {
+            checkbox.checked = checked;
+            checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+            checkbox.dispatchEvent(new Event('click', { bubbles: true }));
+            checkbox.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+    }
+
+    function cmFindInputByLabel(labelText) {
+        const labelLower = labelText.toLowerCase();
+
+        const labels = document.querySelectorAll('label');
+        for (const label of labels) {
+            if (label.textContent.toLowerCase().includes(labelLower)) {
+                const forId = label.getAttribute('for');
+                if (forId) {
+                    const input = document.getElementById(forId);
+                    if (input) return input;
+                }
+                const input = label.querySelector('input, select, textarea');
+                if (input) return input;
+
+                const next = label.nextElementSibling;
+                if (next && ['INPUT', 'SELECT', 'TEXTAREA'].includes(next.tagName)) {
+                    return next;
+                }
+            }
+        }
+
+        const inputs = document.querySelectorAll('input, textarea');
+        for (const input of inputs) {
+            if (input.placeholder && input.placeholder.toLowerCase().includes(labelLower)) {
+                return input;
+            }
+        }
+
+        const allElements = document.querySelectorAll('td, th, div, span, p');
+        for (const el of allElements) {
+            const text = el.textContent.trim().toLowerCase();
+            if (text === labelLower || (text.includes(labelLower) && text.length < labelLower.length + 20)) {
+                const parent = el.closest('tr') || el.closest('div') || el.parentElement;
+                if (parent) {
+                    const input = parent.querySelector(
+                        'input:not([type="hidden"]):not([type="submit"]):not([type="checkbox"]), select, textarea'
+                    );
+                    if (input) return input;
+                }
+            }
+        }
+
+        const allInputs = document.querySelectorAll('input, select, textarea');
+        for (const input of allInputs) {
+            const name = (input.name || '').toLowerCase();
+            const id = (input.id || '').toLowerCase();
+            if (name.includes(labelLower) || id.includes(labelLower)) {
+                return input;
+            }
+        }
+
+        return null;
+    }
+
+    function cmFindCheckboxByLabel(labelText) {
+        const labelLower = labelText.toLowerCase();
+
+        const labels = document.querySelectorAll('label');
+        for (const label of labels) {
+            if (label.textContent.toLowerCase().includes(labelLower)) {
+                const cb = label.querySelector('input[type="checkbox"]');
+                if (cb) return cb;
+
+                const forId = label.getAttribute('for');
+                if (forId) {
+                    const el = document.getElementById(forId);
+                    if (el && el.type === 'checkbox') return el;
+                }
+            }
+        }
+
+        const allElements = document.querySelectorAll('td, th, div, span, p');
+        for (const el of allElements) {
+            const text = el.textContent.trim().toLowerCase();
+            if (text.includes(labelLower) && text.length < labelLower.length + 30) {
+                const parent = el.closest('tr') || el.closest('div') || el.parentElement;
+                if (parent) {
+                    const cb = parent.querySelector('input[type="checkbox"]');
+                    if (cb) return cb;
+                }
+            }
+        }
+
+        const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+        for (const cb of checkboxes) {
+            const name = (cb.name || '').toLowerCase();
+            const id = (cb.id || '').toLowerCase();
+            if (name.includes(labelLower) || id.includes(labelLower)) {
+                return cb;
+            }
+        }
+
+        return null;
+    }
+
+    function cmFindButtonByText(buttonText) {
+        const textLower = buttonText.toLowerCase();
+        const buttons = document.querySelectorAll(
+            'button, input[type="submit"], input[type="button"], kat-button'
+        );
+        for (const btn of buttons) {
+            const text = (btn.textContent || btn.value || btn.getAttribute('label') || '')
+                .trim()
+                .toLowerCase();
+            if (text === textLower || text.includes(textLower)) {
+                if (btn.offsetParent !== null || window.getComputedStyle(btn).display !== 'none') {
+                    return btn;
+                }
+            }
+        }
+        return null;
+    }
+
+    function cmIsAsin(value) {
+        return !value.toUpperCase().startsWith('X00');
+    }
+
+    function cmDetectCurrency() {
+        const pageText = document.body.innerText || '';
+
+        if (/\bCAD\b/.test(pageText)) return 'CAD';
+        if (/\bMXN\b/.test(pageText)) return 'MXN';
+        if (/\bUSD\b/.test(pageText)) return 'USD';
+
+        if (/CA\s*\$|C\s*\$/.test(pageText)) return 'CAD';
+        if (/MX\s*\$/.test(pageText)) return 'MXN';
+
+        return 'USD';
+    }
+
+    function cmGetAllFormInputs() {
+        const form = document.querySelector('form');
+        if (form) {
+            return Array.from(form.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="checkbox"]), select, textarea'));
+        }
+        return Array.from(document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="checkbox"]), select, textarea'));
+    }
+
+    function cmFindFormInputByNearbyText(searchText) {
+        const searchLower = searchText.toLowerCase();
+
+        const formDivs = document.querySelectorAll('form div, form tr, form td, form label, form span');
+        for (const el of formDivs) {
+            const directText = Array.from(el.childNodes)
+                .filter(n => n.nodeType === Node.TEXT_NODE)
+                .map(n => n.textContent.trim())
+                .join(' ')
+                .toLowerCase();
+
+            if (directText.includes(searchLower)) {
+                const parent = el.closest('div') || el.parentElement;
+                if (parent) {
+                    const input = parent.querySelector('input:not([type="hidden"]):not([type="submit"]):not([type="checkbox"]), select, textarea');
+                    if (input) return input;
+                }
+            }
+
+            if (el.textContent.trim().toLowerCase() === searchLower ||
+                (el.textContent.trim().toLowerCase().includes(searchLower) && el.textContent.trim().length < searchLower.length + 15)) {
+                const parent = el.closest('div') || el.parentElement;
+                if (parent) {
+                    const input = parent.querySelector('input:not([type="hidden"]):not([type="submit"]):not([type="checkbox"]), select, textarea');
+                    if (input) return input;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    // ================================================
+    // PART A: ILAC Page — Input + Button beside Copy MID
+    // ================================================
+
+    if (/paragon-.*\.amazon\.com\/ilac\/view-ilac-report\?/.test(location.href)) {
+        console.log('[CheckMapping] Running on ILAC page');
+
+        GM_addStyle(`
+            #cm-check-mapping-container {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                margin-left: 15px;
+                vertical-align: middle;
+            }
+
+            #cm-fnsku-asin-input {
+                padding: 5px 10px;
+                border: 2px solid #e1e5e9;
+                border-radius: 6px;
+                font-size: 13px;
+                width: 150px;
+                outline: none;
+                transition: border-color 0.2s ease;
+                font-family: 'Consolas', 'Monaco', monospace;
+            }
+
+            #cm-fnsku-asin-input:focus {
+                border-color: #667eea;
+                box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            }
+
+            #cm-check-mapping-btn {
+                padding: 5px 12px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                border: none;
+                border-radius: 6px;
+                font-size: 13px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                white-space: nowrap;
+            }
+
+            #cm-check-mapping-btn:hover {
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+            }
+
+            #cm-check-mapping-btn:active {
+                transform: translateY(0);
+            }
+
+            #cm-status-msg {
+                font-size: 11px;
+                font-weight: 600;
+                padding: 3px 8px;
+                border-radius: 4px;
+                display: none;
+            }
+
+            #cm-status-msg.error {
+                display: inline;
+                background: #fef2f2;
+                color: #dc2626;
+                border: 1px solid #fecaca;
+            }
+
+            #cm-status-msg.success {
+                display: inline;
+                background: #dcfce7;
+                color: #166534;
+                border: 1px solid #bbf7d0;
+            }
+        `);
+
+        async function cmExtractMID() {
+            const buttons = Array.from(document.querySelectorAll('button, a'));
+            const copyMIDBtn = buttons.find(
+                (btn) => btn.textContent && btn.textContent.trim() === 'Copy MID'
+            );
+            if (!copyMIDBtn) return null;
+
+            const parentElement = copyMIDBtn.closest('tr') || copyMIDBtn.parentElement;
+            if (parentElement) {
+                const text = parentElement.textContent;
+                const midMatch = text.match(/\((\d{7,15})\)/);
+                if (midMatch && midMatch[1]) return midMatch[1];
+
+                const buttonText = copyMIDBtn.previousSibling?.textContent?.trim();
+                if (buttonText && /^\d{7,15}$/.test(buttonText)) return buttonText;
+            }
+
+            const pageText = document.body.innerText;
+            const merchantPattern =
+                /(?:Merchant[^\n]*?|Customer[^\n]*?ID:)\s*([A-Z0-9]+)\s*\(\s*(\d{7,15})\s*\)/i;
+            const merchantMatch = pageText.match(merchantPattern);
+            if (merchantMatch && merchantMatch[2]) return merchantMatch[2];
+
+            return null;
+        }
+
+        function cmShowStatus(message, type) {
+            const el = document.getElementById('cm-status-msg');
+            if (!el) return;
+            el.textContent = message;
+            el.className = type;
+            if (type) {
+                setTimeout(() => {
+                    el.className = '';
+                    el.style.display = 'none';
+                }, 4000);
+            }
+        }
+
+        function cmAddCheckMappingUI() {
+            const buttons = Array.from(document.querySelectorAll('button, a'));
+            const copyMIDBtn = buttons.find(
+                (btn) => btn.textContent && btn.textContent.trim() === 'Copy MID'
+            );
+            if (!copyMIDBtn || document.getElementById('cm-check-mapping-container')) return;
+
+            const currency = cmDetectCurrency();
+            const marketplaceId = CM_MARKETPLACE_MAP[currency] || CM_MARKETPLACE_MAP['USD'];
+
+            const container = document.createElement('span');
+            container.id = 'cm-check-mapping-container';
+
+            const input = document.createElement('input');
+            input.id = 'cm-fnsku-asin-input';
+            input.type = 'text';
+            input.placeholder = 'FNSKU / ASIN';
+
+            const btn = document.createElement('button');
+            btn.id = 'cm-check-mapping-btn';
+            btn.textContent = 'Check Mapping';
+
+            const statusMsg = document.createElement('span');
+            statusMsg.id = 'cm-status-msg';
+
+            btn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+
+                const value = input.value.trim();
+                if (!value) {
+                    cmShowStatus('Enter FNSKU/ASIN', 'error');
+                    input.focus();
+                    return;
+                }
+
+                const mid = await cmExtractMID();
+                if (!mid) {
+                    cmShowStatus('Could not extract MID', 'error');
+                    return;
+                }
+
+                const type = cmIsAsin(value) ? 'ASIN' : 'FNSKU';
+
+                console.log(
+                    `[CheckMapping] MID: ${mid}, Value: ${value}, Type: ${type}, Currency: ${currency}, Marketplace: ${marketplaceId}`
+                );
+
+                btn.textContent = 'Opening...';
+                btn.style.pointerEvents = 'none';
+
+                const params = {
+                    mid: mid,
+                    value: value.trim(),
+                    type: type,
+                    marketplaceId: marketplaceId,
+                    currency: currency
+                };
+
+                cmStoreParams(params);
+
+                if (type === 'ASIN') {
+                    window.open(
+                        'https://fba-fnsku-commingling-console-na.aka.amazon.com/tool/get-uncommingleable-reasons-tool',
+                        '_blank'
+                    );
+                }
+
+                window.open(
+                    'https://fba-fnsku-commingling-console-na.aka.amazon.com/tool/fnsku-mappings-tool',
+                    '_blank'
+                );
+
+                setTimeout(() => {
+                    btn.textContent = '✓ Opened';
+                    btn.style.background = 'linear-gradient(135deg, #48bb78, #38a169)';
+                    cmShowStatus(`${type} → ${type === 'ASIN' ? '2 tabs' : '1 tab'} opened`, 'success');
+
+                    setTimeout(() => {
+                        btn.textContent = 'Check Mapping';
+                        btn.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+                        btn.style.pointerEvents = 'auto';
+                    }, 2000);
+                }, 300);
+            });
+
+            input.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') btn.click();
+            });
+
+            container.appendChild(input);
+            container.appendChild(btn);
+            container.appendChild(statusMsg);
+
+            if (copyMIDBtn.nextSibling) {
+                copyMIDBtn.parentNode.insertBefore(container, copyMIDBtn.nextSibling);
+            } else {
+                copyMIDBtn.parentNode.appendChild(container);
+            }
+
+            console.log('[CheckMapping] ✓ UI added to ILAC page');
+        }
+
+        setTimeout(cmAddCheckMappingUI, 1000);
+        setTimeout(cmAddCheckMappingUI, 3000);
+        setTimeout(cmAddCheckMappingUI, 5000);
+
+        const cmIlacObserver = new MutationObserver(cmAddCheckMappingUI);
+        cmIlacObserver.observe(document.body, { childList: true, subtree: true });
+    }
+
+    // ======================================================
+    // PART B: Uncommingleable Reasons Tool — Auto-fill
+    // ======================================================
+
+    if (
+        location.href.includes(
+            'fba-fnsku-commingling-console-na.aka.amazon.com/tool/get-uncommingleable-reasons-tool'
+        )
+    ) {
+        console.log('[CheckMapping] Running on Uncommingleable Reasons page');
+
+        GM_addStyle(`
+            #cm-autofill-status {
+                position: fixed;
+                top: 10px;
+                right: 10px;
+                z-index: 99999;
+                background: white;
+                border-radius: 10px;
+                box-shadow: 0 8px 32px rgba(102, 126, 234, 0.25);
+                overflow: hidden;
+                border: 1px solid #e1e5e9;
+                min-width: 300px;
+                animation: cmSlideIn 0.3s ease-out;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            }
+
+            @keyframes cmSlideIn {
+                from { transform: translateX(100%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+
+            #cm-autofill-status .cm-header {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                padding: 10px 14px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            #cm-autofill-status .cm-header .cm-title {
+                color: white;
+                font-weight: 700;
+                font-size: 14px;
+            }
+
+            #cm-autofill-status .cm-header .cm-close {
+                background: rgba(255,255,255,0.2);
+                border: none;
+                color: white;
+                width: 24px;
+                height: 24px;
+                border-radius: 50%;
+                cursor: pointer;
+                font-size: 14px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                line-height: 1;
+            }
+
+            #cm-autofill-status .cm-body {
+                padding: 12px 14px;
+                font-size: 13px;
+                color: #2d3748;
+                line-height: 1.6;
+            }
+
+            .cm-step {
+                padding: 4px 0;
+            }
+
+            .cm-step.done::before {
+                content: '✓ ';
+                color: #48bb78;
+                font-weight: bold;
+            }
+
+            .cm-step.fail::before {
+                content: '✗ ';
+                color: #e53e3e;
+                font-weight: bold;
+            }
+
+            .cm-step.pending::before {
+                content: '⏳ ';
+            }
+        `);
+
+        function cmCreateStatusToast() {
+            const existing = document.getElementById('cm-autofill-status');
+            if (existing) existing.remove();
+
+            const toast = document.createElement('div');
+            toast.id = 'cm-autofill-status';
+            toast.innerHTML = `
+                <div class="cm-header">
+                    <span class="cm-title">Check Mapping — Uncommingleable</span>
+                    <button class="cm-close" onclick="this.closest('#cm-autofill-status').remove()">✕</button>
+                </div>
+                <div class="cm-body" id="cm-status-body">
+                    <div class="cm-step pending" id="cm-step-mid">Fill Merchant ID</div>
+                    <div class="cm-step pending" id="cm-step-asin">Fill ASIN</div>
+                    <div class="cm-step pending" id="cm-step-market">Fill Marketplace ID</div>
+                    <div class="cm-step pending" id="cm-step-submit">Click Submit</div>
+                </div>
+            `;
+            document.body.appendChild(toast);
+        }
+
+        function cmUpdateStep(stepId, status) {
+            const el = document.getElementById(stepId);
+            if (el) el.className = `cm-step ${status}`;
+        }
+
+        function cmAutoDismissToast(delay = 5000) {
+            setTimeout(() => {
+                const toast = document.getElementById('cm-autofill-status');
+                if (toast) {
+                    toast.style.animation = 'cmSlideIn 0.3s ease-out reverse';
+                    setTimeout(() => toast.remove(), 280);
+                }
+            }, delay);
+        }
+
+        async function cmAutoFillUncommingleable() {
+            const params = cmGetParams();
+            if (!params || params.type !== 'ASIN') {
+                console.log('[CheckMapping] No ASIN params for uncommingleable page, skipping');
+                return;
+            }
+
+            console.log('[CheckMapping] Auto-filling uncommingleable reasons:', params);
+            cmCreateStatusToast();
+
+            await cmSleep(2500);
+
+            const form = document.querySelector('form');
+            const formInputs = form
+                ? Array.from(form.querySelectorAll('input[type="text"], input:not([type]), textarea')).filter(el => {
+                    return el.offsetParent !== null && window.getComputedStyle(el).display !== 'none';
+                })
+                : [];
+
+            console.log('[CheckMapping] Visible form inputs/textareas:', formInputs.length);
+
+            let midInput = formInputs[0] || null;
+
+            if (midInput) {
+                cmSetNativeValue(midInput, params.mid);
+                cmUpdateStep('cm-step-mid', 'done');
+                console.log('[CheckMapping] ✓ Filled Merchant ID:', params.mid);
+            } else {
+                cmUpdateStep('cm-step-mid', 'fail');
+                console.error('[CheckMapping] ✗ Could not find Merchant ID input');
+            }
+
+            await cmSleep(400);
+
+            let marketInput = formInputs[1] || null;
+
+            if (marketInput) {
+                cmSetNativeValue(marketInput, params.marketplaceId);
+                cmUpdateStep('cm-step-market', 'done');
+                console.log('[CheckMapping] ✓ Filled Marketplace ID:', params.marketplaceId);
+            } else {
+                cmUpdateStep('cm-step-market', 'fail');
+                console.error('[CheckMapping] ✗ Could not find Marketplace ID input');
+            }
+
+            await cmSleep(400);
+
+            let asinInput = formInputs[2] || null;
+
+            if (!asinInput) {
+                asinInput = form ? form.querySelector('textarea') : document.querySelector('form textarea, textarea');
+            }
+
+            if (asinInput) {
+                cmSetNativeValue(asinInput, params.value);
+                cmUpdateStep('cm-step-asin', 'done');
+                console.log('[CheckMapping] ✓ Filled ASIN:', params.value);
+            } else {
+                cmUpdateStep('cm-step-asin', 'fail');
+                console.error('[CheckMapping] ✗ Could not find ASIN textarea');
+            }
+
+            await cmSleep(500);
+
+            let submitBtn = null;
+
+            if (form) {
+                const formButtons = Array.from(form.querySelectorAll('button'));
+                submitBtn = formButtons.find(b => b.textContent.trim().toLowerCase() === 'submit');
+
+                if (!submitBtn) {
+                    submitBtn = formButtons.find(b => {
+                        const text = b.textContent.trim().toLowerCase();
+                        return text !== 'clear' && text !== 'cancel' && text !== 'reset';
+                    });
+                }
+            }
+
+            if (!submitBtn) {
+                try {
+                    const xpathResult = document.evaluate(
+                        '/html/body/div[1]/div/div[1]/div/form/div[4]/button[2]',
+                        document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null
+                    );
+                    submitBtn = xpathResult.singleNodeValue;
+                } catch (e) {
+                    console.log('[CheckMapping] XPath failed:', e);
+                }
+            }
+
+            if (!submitBtn) {
+                submitBtn = cmFindButtonByText('Submit');
+            }
+
+            if (submitBtn) {
+                submitBtn.click();
+                cmUpdateStep('cm-step-submit', 'done');
+                console.log('[CheckMapping] ✓ Clicked Submit');
+            } else {
+                cmUpdateStep('cm-step-submit', 'fail');
+                console.error('[CheckMapping] ✗ Could not find Submit button');
+            }
+
+            cmAutoDismissToast(6000);
+        }
+
+        cmAutoFillUncommingleable();
+    }
+
+    // ======================================================
+    // PART C: FNSKU Mappings Tool — Auto-fill + MID Search
+    // ======================================================
+
+    if (
+        location.href.includes(
+            'fba-fnsku-commingling-console-na.aka.amazon.com/tool/fnsku-mappings-tool'
+        )
+    ) {
+        console.log('[CheckMapping] Running on FNSKU Mappings Tool page');
+
+        GM_addStyle(`
+            #cm-mapping-status {
+                position: fixed;
+                top: 10px;
+                right: 10px;
+                z-index: 99999;
+                background: white;
+                border-radius: 10px;
+                box-shadow: 0 8px 32px rgba(102, 126, 234, 0.25);
+                overflow: hidden;
+                border: 1px solid #e1e5e9;
+                min-width: 320px;
+                max-width: 420px;
+                animation: cmSlideIn 0.3s ease-out;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            }
+
+            @keyframes cmSlideIn {
+                from { transform: translateX(100%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+
+            #cm-mapping-status .cm-header {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                padding: 10px 14px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            #cm-mapping-status .cm-header .cm-title {
+                color: white;
+                font-weight: 700;
+                font-size: 14px;
+            }
+
+            #cm-mapping-status .cm-header .cm-close {
+                background: rgba(255,255,255,0.2);
+                border: none;
+                color: white;
+                width: 24px;
+                height: 24px;
+                border-radius: 50%;
+                cursor: pointer;
+                font-size: 14px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                line-height: 1;
+            }
+
+            #cm-mapping-status .cm-body {
+                padding: 12px 14px;
+                font-size: 13px;
+                color: #2d3748;
+                line-height: 1.6;
+                max-height: 500px;
+                overflow-y: auto;
+            }
+
+            .cm-step {
+                padding: 4px 0;
+            }
+
+            .cm-step.done::before {
+                content: '✓ ';
+                color: #48bb78;
+                font-weight: bold;
+            }
+
+            .cm-step.fail::before {
+                content: '✗ ';
+                color: #e53e3e;
+                font-weight: bold;
+            }
+
+            .cm-step.pending::before {
+                content: '⏳ ';
+            }
+
+            .cm-step.searching::before {
+                content: '🔍 ';
+            }
+
+            .cm-divider {
+                border-top: 1px solid #e1e5e9;
+                margin: 8px 0;
+            }
+
+            .cm-result-item {
+                padding: 8px;
+                margin-top: 8px;
+                background: #f8fafc;
+                border-radius: 6px;
+                border-left: 3px solid #667eea;
+                font-size: 12px;
+            }
+
+            .cm-result-title {
+                font-weight: 600;
+                color: #1e293b;
+                margin-bottom: 4px;
+            }
+
+            .cm-result-details {
+                color: #64748b;
+                line-height: 1.4;
+            }
+
+            .cm-match-badge {
+                display: inline-block;
+                padding: 2px 6px;
+                border-radius: 4px;
+                font-size: 10px;
+                font-weight: 700;
+            }
+
+            .cm-match-badge.found {
+                background: #dcfce7;
+                color: #166534;
+            }
+
+            .cm-match-badge.not-found {
+                background: #fef2f2;
+                color: #dc2626;
+            }
+
+            .cm-search-log {
+                padding: 3px 0;
+                font-size: 11px;
+                color: #6b7280;
+                border-bottom: 1px solid #f1f5f9;
+            }
+
+            .cm-search-log:last-child {
+                border-bottom: none;
+            }
+
+            .cm-highlight-row {
+                background-color: #ffff00 !important;
+                border: 3px solid #ff6b6b !important;
+                box-shadow: 0 0 10px rgba(255, 107, 107, 0.5) !important;
+            }
+        `);
+
+        function cmCreateMappingStatusToast() {
+            const existing = document.getElementById('cm-mapping-status');
+            if (existing) existing.remove();
+
+            const toast = document.createElement('div');
+            toast.id = 'cm-mapping-status';
+            toast.innerHTML = `
+                <div class="cm-header">
+                    <span class="cm-title">Check Mapping — Mappings Tool</span>
+                    <button class="cm-close" onclick="this.closest('#cm-mapping-status').remove()">✕</button>
+                </div>
+                <div class="cm-body" id="cm-mapping-body">
+                    <div class="cm-step pending" id="cm-step-type">Select Mapping Type</div>
+                    <div class="cm-step pending" id="cm-step-value">Fill ASIN / FNSKU</div>
+                    <div class="cm-step pending" id="cm-step-inactive">Set Include Inactive</div>
+                    <div class="cm-step pending" id="cm-step-internal">Set Include Internal Merchants</div>
+                    <div class="cm-step pending" id="cm-step-get">Click Get</div>
+                    <div class="cm-divider"></div>
+                    <div class="cm-step pending" id="cm-step-search">MID Search</div>
+                    <div id="cm-search-results"></div>
+                </div>
+            `;
+            document.body.appendChild(toast);
+        }
+
+        function cmMappingUpdateStep(stepId, status, extraText) {
+            const el = document.getElementById(stepId);
+            if (!el) return;
+            if (extraText) {
+                el.textContent = extraText;
+            }
+            el.className = `cm-step ${status}`;
+        }
+
+        function cmAddSearchLog(text) {
+            const resultsDiv = document.getElementById('cm-search-results');
+            if (!resultsDiv) return;
+            const line = document.createElement('div');
+            line.className = 'cm-search-log';
+            line.textContent = text;
+            resultsDiv.appendChild(line);
+            resultsDiv.scrollTop = resultsDiv.scrollHeight;
+        }
+
+        function cmAddSearchResult(result, index, isAsinMode) {
+            const resultsDiv = document.getElementById('cm-search-results');
+            if (!resultsDiv) return;
+
+            const fnskuAsinMatch = result.fnsku === result.asin;
+            let badge = '';
+            if (isAsinMode) {
+                badge = fnskuAsinMatch
+                    ? '<span class="cm-match-badge found">FNSKU = ASIN</span>'
+                    : '<span class="cm-match-badge not-found">FNSKU ≠ ASIN</span>';
+            }
+
+            const item = document.createElement('div');
+            item.className = 'cm-result-item';
+            item.innerHTML = `
+                <div class="cm-result-title">Match ${index + 1} (Page ${result.page}) ${badge}</div>
+                <div class="cm-result-details">
+                    <strong>Merchant:</strong> ${result.merchantId}<br>
+                    <strong>MSKU:</strong> ${result.msku}<br>
+                    <strong>FNSKU:</strong> ${result.fnsku}<br>
+                    <strong>ASIN:</strong> ${result.asin}<br>
+                    <strong>Condition:</strong> ${result.condition}<br>
+                    <strong>Status:</strong> ${result.status}
+                </div>
+            `;
+            resultsDiv.appendChild(item);
+        }
+
+        function cmSearchCurrentPage(searchMIDLower) {
+            const results = [];
+            const tables = document.querySelectorAll('table');
+
+            tables.forEach((table) => {
+                const rows = table.querySelectorAll('tr');
+                rows.forEach((row, rowIndex) => {
+                    if (rowIndex === 0) return;
+
+                    const cells = row.querySelectorAll('td');
+                    if (cells.length < 4) return;
+
+                    const merchantId = cells[0]?.textContent?.trim() || '';
+                    const msku = cells[1]?.textContent?.trim() || '';
+                    const fnsku = cells[2]?.textContent?.trim() || '';
+                    const asin = cells[3]?.textContent?.trim() || '';
+                    const condition = cells[4]?.textContent?.trim() || '';
+                    const status = cells[5]?.textContent?.trim() || '';
+
+                    if (merchantId.toLowerCase().includes(searchMIDLower)) {
+                        results.push({
+                            element: row,
+                            row: rowIndex,
+                            merchantId,
+                            msku,
+                            fnsku,
+                            asin,
+                            condition,
+                            status
+                        });
+                    }
+                });
+            });
+
+            return results;
+        }
+
+        function cmFindNextButton() {
+            const allClickable = document.querySelectorAll('a, button, [role="button"], span');
+            for (const el of allClickable) {
+                const text = (el.textContent || '').trim();
+                if (/^next\s*>?$/i.test(text) || /^>\s*$/i.test(text) || /^next\s*page$/i.test(text)) {
+                    if (
+                        !el.disabled &&
+                        el.offsetParent !== null &&
+                        window.getComputedStyle(el).display !== 'none' &&
+                        window.getComputedStyle(el).visibility !== 'hidden' &&
+                        !el.classList.contains('disabled')
+                    ) {
+                        console.log('[CheckMapping] Found next button:', text, el.tagName);
+                        return el;
+                    }
+                }
+            }
+
+            for (const el of allClickable) {
+                const text = (el.textContent || '').trim().toLowerCase();
+                if (text.includes('next') && !text.includes('prev') && text.length < 30) {
+                    if (
+                        !el.disabled &&
+                        el.offsetParent !== null &&
+                        window.getComputedStyle(el).display !== 'none' &&
+                        !el.classList.contains('disabled')
+                    ) {
+                        console.log('[CheckMapping] Found next button (partial):', text, el.tagName);
+                        return el;
+                    }
+                }
+            }
+
+            const selectors = [
+                'button[aria-label*="next" i]:not([disabled])',
+                'a[aria-label*="next" i]:not(.disabled)',
+                '.pagination a:not(.disabled):not(.active)',
+                '[class*="pagination"] a:not(.disabled)'
+            ];
+
+            for (const selector of selectors) {
+                try {
+                    const el = document.querySelector(selector);
+                    if (el && el.offsetParent !== null) return el;
+                } catch (e) { }
+            }
+
+            console.log('[CheckMapping] No next button found');
+            return null;
+        }
+
+        async function cmWaitForContentChange(oldSnapshot, timeout = 10000) {
+            return new Promise((resolve) => {
+                const startTime = Date.now();
+
+                const checkInterval = setInterval(() => {
+                    const elapsed = Date.now() - startTime;
+
+                    const rows = document.querySelectorAll('table tr');
+                    if (rows.length >= 2) {
+                        const currentSnapshot = Array.from(rows).slice(1, 4).map(r => {
+                            const cells = r.querySelectorAll('td');
+                            return cells[0]?.textContent?.trim() || '';
+                        }).join('|');
+
+                        if (currentSnapshot !== oldSnapshot && currentSnapshot.length > 0) {
+                            clearInterval(checkInterval);
+                            resolve(true);
+                            return;
+                        }
+                    }
+
+                    const pageText = document.body.innerText.toLowerCase();
+                    if (pageText.includes('no results') || pageText.includes('this operation returned no results')) {
+                        clearInterval(checkInterval);
+                        resolve('no_results');
+                        return;
+                    }
+
+                    if (elapsed >= timeout) {
+                        clearInterval(checkInterval);
+                        resolve(false);
+                        return;
+                    }
+                }, 200);
+            });
+        }
+
+        function cmHighlightRow(row, searchTerm) {
+            if (!row) return;
+            row.classList.add('cm-highlight-row');
+
+            const cells = row.querySelectorAll('td');
+            cells.forEach((cell) => {
+                if (cell.textContent.toLowerCase().includes(searchTerm)) {
+                    cell.style.fontWeight = 'bold';
+                    cell.style.textDecoration = 'underline';
+                }
+            });
+        }
+
+        function cmScrollToElement(element) {
+            if (!element) return;
+            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            element.style.transition = 'background-color 0.5s';
+            element.style.backgroundColor = '#ffff00';
+            setTimeout(() => {
+                element.style.backgroundColor = '';
+                setTimeout(() => {
+                    element.style.backgroundColor = '#ffff00';
+                }, 500);
+            }, 500);
+        }
+
+        async function cmRunMidSearch(mid, isAsinMode) {
+            console.log('[CheckMapping] Starting MID search for:', mid);
+            cmMappingUpdateStep('cm-step-search', 'searching', 'MID Search: Scanning...');
+
+            const searchMIDLower = mid.toLowerCase();
+            let pageCount = 0;
+            const maxPages = 200;
+            let found = false;
+            let finalResults = [];
+
+            function getPageSnapshot() {
+                const rows = document.querySelectorAll('table tr');
+                return Array.from(rows).slice(1, 4).map(r => {
+                    const cells = r.querySelectorAll('td');
+                    return cells[0]?.textContent?.trim() || '';
+                }).join('|');
+            }
+
+            while (pageCount < maxPages) {
+                pageCount++;
+                cmMappingUpdateStep('cm-step-search', 'searching', `MID Search: Page ${pageCount}...`);
+                console.log(`[CheckMapping] Searching page ${pageCount}...`);
+
+                const pageText = document.body.innerText.toLowerCase();
+                if (pageText.includes('this operation returned no results') ||
+                    (pageCount > 1 && pageText.includes('no results'))) {
+                    cmAddSearchLog(`Page ${pageCount}: "No results" detected — end of data`);
+                    break;
+                }
+
+                const pageResults = cmSearchCurrentPage(searchMIDLower);
+                pageResults.forEach((r) => { r.page = pageCount; });
+
+                console.log(`[CheckMapping] Page ${pageCount}: ${pageResults.length} matches found`);
+
+                if (pageResults.length > 0) {
+                    if (isAsinMode) {
+                        const matchingResults = pageResults.filter((r) => r.fnsku === r.asin);
+                        if (matchingResults.length > 0) {
+                            finalResults = matchingResults;
+                            matchingResults.forEach((r) => cmHighlightRow(r.element, searchMIDLower));
+                            cmScrollToElement(matchingResults[0].element);
+                            cmAddSearchLog(`Page ${pageCount}: Found ${matchingResults.length} result(s) with FNSKU = ASIN`);
+                            found = true;
+                            break;
+                        } else {
+                            cmAddSearchLog(`Page ${pageCount}: Found ${pageResults.length} MID match(es) but FNSKU ≠ ASIN`);
+                        }
+                    } else {
+                        finalResults = pageResults;
+                        pageResults.forEach((r) => cmHighlightRow(r.element, searchMIDLower));
+                        cmScrollToElement(pageResults[0].element);
+                        cmAddSearchLog(`Page ${pageCount}: Found ${pageResults.length} MID match(es)`);
+                        found = true;
+                        break;
+                    }
+                } else {
+                    cmAddSearchLog(`Page ${pageCount}: No matches`);
+                }
+
+                const nextBtn = cmFindNextButton();
+                if (!nextBtn) {
+                    cmAddSearchLog('No next button found — end of pages');
+                    break;
+                }
+
+                const snapshotBefore = getPageSnapshot();
+
+                console.log(`[CheckMapping] Clicking: "${nextBtn.textContent.trim()}" (${nextBtn.tagName})`);
+                nextBtn.click();
+
+                const changeResult = await cmWaitForContentChange(snapshotBefore, 10000);
+
+                if (changeResult === 'no_results') {
+                    cmAddSearchLog(`After page ${pageCount}: "No results" — end of data`);
+                    break;
+                }
+
+                if (changeResult === false) {
+                    cmAddSearchLog(`Page navigation stopped — content did not change after page ${pageCount}`);
+                    break;
+                }
+
+                await cmSleep(500);
+            }
+
+            if (found) {
+                cmMappingUpdateStep(
+                    'cm-step-search',
+                    'done',
+                    `MID Search: Found on page ${finalResults[0]?.page || '?'} (${finalResults.length} match${finalResults.length > 1 ? 'es' : ''})`
+                );
+                finalResults.forEach((result, idx) => {
+                    cmAddSearchResult(result, idx, isAsinMode);
+                });
+            } else {
+                cmMappingUpdateStep(
+                    'cm-step-search',
+                    'fail',
+                    `MID Search: Not found across ${pageCount} pages`
+                );
+            }
+
+            return { found, results: finalResults, pages: pageCount };
+        }
+
+        async function cmWaitForTableData(timeout = 15000) {
+            return new Promise((resolve) => {
+                const startTime = Date.now();
+
+                const checkInterval = setInterval(() => {
+                    const elapsed = Date.now() - startTime;
+                    const rows = document.querySelectorAll('table tr');
+
+                    if (rows.length >= 2) {
+                        const lastRow = rows[rows.length - 1];
+                        const cells = lastRow.querySelectorAll('td');
+                        if (cells.length >= 3) {
+                            clearInterval(checkInterval);
+                            resolve(true);
+                            return;
+                        }
+                    }
+
+                    const pageText = document.body.innerText.toLowerCase();
+                    if (
+                        pageText.includes('no results') ||
+                        pageText.includes('no mappings') ||
+                        pageText.includes('no data') ||
+                        pageText.includes('this operation returned no results')
+                    ) {
+                        clearInterval(checkInterval);
+                        resolve(false);
+                        return;
+                    }
+
+                    if (elapsed >= timeout) {
+                        clearInterval(checkInterval);
+                        resolve(false);
+                        return;
+                    }
+                }, 300);
+            });
+        }
+
+        async function cmAutoFillMappingsTool() {
+            const params = cmGetParams();
+            if (!params) {
+                console.log('[CheckMapping] No params for mappings tool, skipping auto-fill');
+                return;
+            }
+
+            console.log('[CheckMapping] Auto-filling mappings tool:', params);
+            cmCreateMappingStatusToast();
+
+            await cmSleep(2000);
+
+            const isAsinMode = params.type === 'ASIN';
+
+            // 1. Select mapping type
+            const mappingTypeDropdown = document.querySelector('#getMappingsType');
+            if (mappingTypeDropdown) {
+                const targetType = isAsinMode ? 'asin' : 'fnsku';
+                cmSetSelectValue(mappingTypeDropdown, targetType);
+                cmMappingUpdateStep('cm-step-type', 'done');
+                console.log('[CheckMapping] ✓ Set mapping type:', params.type);
+            } else {
+                cmMappingUpdateStep('cm-step-type', 'fail');
+                console.error('[CheckMapping] ✗ Could not find mapping type dropdown');
+            }
+
+            await cmSleep(800);
+
+            // 2. Fill ASIN or FNSKU
+            const valueLabel = isAsinMode ? 'ASIN' : 'FNSKU';
+            let valueInput = cmFindInputByLabel(valueLabel);
+
+            if (!valueInput) {
+                const allInputs = document.querySelectorAll('input[type="text"], input:not([type])');
+                for (const inp of allInputs) {
+                    const id = (inp.id || '').toLowerCase();
+                    const name = (inp.name || '').toLowerCase();
+                    const placeholder = (inp.placeholder || '').toLowerCase();
+                    if (
+                        id.includes(valueLabel.toLowerCase()) ||
+                        name.includes(valueLabel.toLowerCase()) ||
+                        placeholder.includes(valueLabel.toLowerCase())
+                    ) {
+                        valueInput = inp;
+                        break;
+                    }
+                }
+            }
+
+            if (!valueInput) {
+                const visibleInputs = Array.from(document.querySelectorAll('input[type="text"], input:not([type])')).filter(
+                    el => el.offsetParent !== null && !el.id.toLowerCase().includes('marketplace')
+                );
+                if (visibleInputs.length >= 1) valueInput = visibleInputs[0];
+            }
+
+            if (valueInput) {
+                cmSetNativeValue(valueInput, params.value);
+                cmMappingUpdateStep('cm-step-value', 'done');
+                console.log('[CheckMapping] ✓ Filled', valueLabel, ':', params.value);
+            } else {
+                cmMappingUpdateStep('cm-step-value', 'fail');
+                console.error('[CheckMapping] ✗ Could not find', valueLabel, 'input');
+            }
+
+            await cmSleep(400);
+
+            // 3. Set Include Inactive = True
+            let inactiveCheckbox =
+                cmFindCheckboxByLabel('Include Inactive') ||
+                cmFindCheckboxByLabel('includeInactive') ||
+                document.querySelector('#includeInactive input[type="checkbox"]') ||
+                document.querySelector('input#includeInactive[type="checkbox"]');
+
+            if (inactiveCheckbox) {
+                cmSetCheckbox(inactiveCheckbox, true);
+                cmMappingUpdateStep('cm-step-inactive', 'done');
+                console.log('[CheckMapping] ✓ Set Include Inactive = True');
+            } else {
+                const inactiveSelect =
+                    cmFindInputByLabel('Include Inactive') ||
+                    document.querySelector('#includeInactive');
+                if (inactiveSelect && inactiveSelect.tagName === 'SELECT') {
+                    cmSetSelectValue(inactiveSelect, 'true');
+                    cmMappingUpdateStep('cm-step-inactive', 'done');
+                } else {
+                    cmMappingUpdateStep('cm-step-inactive', 'fail');
+                    console.error('[CheckMapping] ✗ Could not find Include Inactive control');
+                }
+            }
+
+            await cmSleep(400);
+
+            // 4. Set Include Internal Merchants = True (if available)
+            let internalCheckbox =
+                cmFindCheckboxByLabel('Include Internal') ||
+                cmFindCheckboxByLabel('includeInternal') ||
+                cmFindCheckboxByLabel('Internal Merchants');
+
+            if (internalCheckbox) {
+                cmSetCheckbox(internalCheckbox, true);
+                cmMappingUpdateStep('cm-step-internal', 'done');
+            } else {
+                const internalSelect =
+                    cmFindInputByLabel('Include Internal') ||
+                    cmFindInputByLabel('Internal Merchants');
+                if (internalSelect && internalSelect.tagName === 'SELECT') {
+                    cmSetSelectValue(internalSelect, 'true');
+                    cmMappingUpdateStep('cm-step-internal', 'done');
+                } else {
+                    cmMappingUpdateStep('cm-step-internal', 'done');
+                    console.log('[CheckMapping] ℹ Include Internal Merchants not found (may not exist)');
+                }
+            }
+
+            await cmSleep(500);
+
+            // 5. Click Get
+            let getBtn = document.getElementById('get');
+
+            if (!getBtn) {
+                getBtn = cmFindButtonByText('Get');
+            }
+
+            if (!getBtn) {
+                getBtn = document.querySelector('form button[type="submit"], form input[type="submit"]');
+            }
+
+            if (!getBtn) {
+                const allBtns = document.querySelectorAll('button, input[type="submit"]');
+                for (const b of allBtns) {
+                    if ((b.id || '').toLowerCase().includes('get') ||
+                        (b.className || '').toLowerCase().includes('get')) {
+                        getBtn = b;
+                        break;
+                    }
+                }
+            }
+
+            if (getBtn) {
+                getBtn.click();
+                cmMappingUpdateStep('cm-step-get', 'done');
+                console.log('[CheckMapping] ✓ Clicked Get');
+            } else {
+                cmMappingUpdateStep('cm-step-get', 'fail');
+                console.error('[CheckMapping] ✗ Could not find Get button');
+                return;
+            }
+
+            // 6. Wait for table data
+            cmMappingUpdateStep('cm-step-search', 'pending', 'MID Search: Waiting for data...');
+
+            const hasData = await cmWaitForTableData(15000);
+
+            if (!hasData) {
+                cmMappingUpdateStep('cm-step-search', 'fail', 'MID Search: No data returned');
+                cmAddSearchLog('No mapping data was returned. The ASIN/FNSKU may not have any mappings.');
+                return;
+            }
+
+            await cmSleep(500);
+
+            // 7. Run MID Search
+            await cmRunMidSearch(params.mid, isAsinMode);
+
+            cmClearParams();
+        }
+
+        cmAutoFillMappingsTool();
+    }
+
+  } // end of isFeatureEnabled('checkMappingILAC')
 
 
 })();
