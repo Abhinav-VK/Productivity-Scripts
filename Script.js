@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     8.0.0
+// @version     8.0.1
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -10,7 +10,7 @@
 // @match       https://console.harmony.a2z.com/*
 // @match       https://fba-registration-console-na.aka.amazon.com/*
 // @match       https://moonraker-na.aka.amazon.com/serenity/open*
-// @match       https://fba-fnsku-commingling-console-na.aka.amazon.com/tool/fnsku-mappings-tool*
+// @match       https://fba-fnsku-commingling-console-na.aka.amazon.com/*
 // @match       https://console-na.seller-reimbursement.amazon.dev/*
 // @match       https://console-eu.seller-reimbursement.amazon.dev/*
 // @connect     paragon-na.amazon.com
