@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     8.1.3
+// @version     8.2.3
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -737,13 +737,15 @@
         }
 
                 toggleBtn.addEventListener('click', () => {
+          if (hcIsCaseAnnotated(hcCaseId)) return;
+
           const form = document.getElementById('hc-checklist-form');
           if (!form) return;
 
           if (form.classList.contains('visible')) {
             form.classList.remove('visible');
             hcFormVisible = false;
-            toggleBtn.textContent = hcIsCaseAnnotated(hcCaseId) ? '✓ Checklist Completed' : 'Hygiene Checks';
+            toggleBtn.textContent = 'Hygiene Checks';
           } else {
             form.classList.add('visible');
             hcFormVisible = true;
@@ -757,16 +759,8 @@
         const form = document.createElement('div');
         form.id = 'hc-checklist-form';
 
-        if (hcIsCaseAnnotated(hcCaseId)) {
-          form.innerHTML = `
-            <div class="hc-form-header">
-              <span class="hc-form-title">ILAC Investigation Checklist</span>
-            </div>
-            <div class="hc-form-body" style="text-align: center; padding: 20px;">
-              <div class="hc-annotated-badge">✓ Checklist Completed</div>
-              <p style="font-size: 12px; color: #718096; margin-top: 8px;">This case has been annotated.</p>
-            </div>
-          `;
+                if (hcIsCaseAnnotated(hcCaseId)) {
+          form.style.display = 'none';
         } else {
           form.innerHTML = `
             <div class="hc-form-header">
@@ -861,17 +855,11 @@
                   toggleBtn.classList.add('annotated');
                 }
 
-                const form = document.getElementById('hc-checklist-form');
+                                const form = document.getElementById('hc-checklist-form');
                 if (form) {
-                  form.innerHTML = `
-                    <div class="hc-form-header">
-                      <span class="hc-form-title">ILAC Investigation Checklist</span>
-                    </div>
-                    <div class="hc-form-body" style="text-align: center; padding: 20px;">
-                      <div class="hc-annotated-badge">✓ Checklist Completed</div>
-                      <p style="font-size: 12px; color: #718096; margin-top: 8px;">Annotation saved & copied to clipboard.</p>
-                    </div>
-                  `;
+                  form.style.display = 'none';
+                  form.classList.remove('visible');
+                  hcFormVisible = false;
                 }
               } else {
                 hcSetAnnotationForCase(hcCaseId, true);
@@ -1031,7 +1019,7 @@
         }
       }
 
-      const hcBeaconObserver = new MutationObserver(() => {
+            const hcBeaconObserver = new MutationObserver(() => {
         const caseId = hcGetCaseIdFromBeacon();
         if (caseId) {
           if (caseId !== hcBeaconCaseId) {
@@ -1045,6 +1033,16 @@
         hcBlockBeaconButtons();
         hcBeaconObserver.observe(document.body, { childList: true, subtree: true });
       }, 3000);
+
+      // Poll every second to check if case was annotated on Paragon
+      setInterval(() => {
+        if (!hcBeaconCaseId) {
+          hcBeaconCaseId = hcGetCaseIdFromBeacon();
+        }
+        if (hcBeaconCaseId && hcBeaconBlocked && hcIsCaseAnnotated(hcBeaconCaseId)) {
+          hcUnblockBeaconButtons();
+        }
+      }, 1000);
     }
 
   } // end of isFeatureEnabled('hygieneChecks')
