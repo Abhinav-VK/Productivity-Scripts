@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     8.2.5
+// @version     8.2.6
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -265,7 +265,7 @@
 
 
 
-    ////////////////////////////////
+      ////////////////////////////////
   // 1) Hygiene Checks Script   //
   ////////////////////////////////
 
@@ -436,6 +436,15 @@
         cursor: pointer;
       }
 
+      .hc-options label.disabled {
+        cursor: default;
+        opacity: 0.8;
+      }
+
+      .hc-options input[type="radio"]:disabled {
+        cursor: default;
+      }
+
       .hc-form-footer {
         padding: 12px 14px;
         background: #fafbfc;
@@ -547,6 +556,13 @@
         font-weight: 700;
         margin-bottom: 8px;
       }
+
+      .hc-completed-banner {
+        text-align: center;
+        padding: 10px 14px;
+        background: #f0fff4;
+        border-bottom: 1px solid #c6f6d5;
+      }
     `);
 
     // =============================================
@@ -555,7 +571,7 @@
 
     if (/paragon-.*\.amazon\.com\/hz\/(view-case|case)\?caseId=/.test(location.href)) {
 
-            const hcCaseId = hcGetCaseIdFromUrl();
+      const hcCaseId = hcGetCaseIdFromUrl();
       let hcFormVisible = false;
 
       function hcSaveFormState() {
@@ -592,7 +608,6 @@
         const state = hcGetSavedFormState();
         if (!state) return;
 
-        // Restore answers
         if (state.answers) {
           Object.entries(state.answers).forEach(([name, value]) => {
             const radio = document.querySelector(`input[name="${name}"][value="${value}"]`);
@@ -600,7 +615,6 @@
           });
         }
 
-        // Restore visibility
         if (state.visible) {
           const form = document.getElementById('hc-checklist-form');
           const toggleBtn = document.getElementById('hc-toggle-btn');
@@ -614,7 +628,7 @@
         }
       }
 
-      function hcBuildFormHTML() {
+      function hcBuildFormHTML(readOnly) {
         let questionIndex = 0;
         let html = '';
 
@@ -622,15 +636,17 @@
           html += `<div class="hc-section-title">${section.title}</div>`;
           section.questions.forEach(q => {
             questionIndex++;
+            const disabled = readOnly ? 'disabled' : '';
+            const labelClass = readOnly ? 'class="disabled"' : '';
             html += `
               <div class="hc-question">
                 <div class="hc-question-text">
                   <span class="hc-question-number">${questionIndex})</span> ${q}
                 </div>
                 <div class="hc-options">
-                  <label><input type="radio" name="hc-q${questionIndex}" value="Yes"> Yes</label>
-                  <label><input type="radio" name="hc-q${questionIndex}" value="No"> No</label>
-                  <label><input type="radio" name="hc-q${questionIndex}" value="NA"> NA</label>
+                  <label ${labelClass}><input type="radio" name="hc-q${questionIndex}" value="Yes" ${disabled}> Yes</label>
+                  <label ${labelClass}><input type="radio" name="hc-q${questionIndex}" value="No" ${disabled}> No</label>
+                  <label ${labelClass}><input type="radio" name="hc-q${questionIndex}" value="NA" ${disabled}> NA</label>
                 </div>
               </div>
             `;
@@ -658,22 +674,18 @@
           return;
         }
 
-        // Find the Review kat-button specifically
         const reviewKatBtn = document.querySelector('kat-button.transition-button[label="Review"]');
         if (reviewKatBtn) {
-          // Block the inner <button> inside kat-button
           const innerBtn = reviewKatBtn.querySelector('button');
           if (innerBtn && !innerBtn.classList.contains('hc-blocked-btn')) {
             innerBtn.classList.add('hc-blocked-btn');
             innerBtn.setAttribute('data-hc-blocked', 'true');
           }
-          // Also block the kat-button itself
           if (!reviewKatBtn.classList.contains('hc-blocked-btn')) {
             reviewKatBtn.classList.add('hc-blocked-btn');
             reviewKatBtn.setAttribute('data-hc-blocked', 'true');
           }
 
-          // Add prompt after the button group div (once)
           if (!document.querySelector('.hc-block-prompt')) {
             const buttonGroup = reviewKatBtn.closest('.transition-button-group') || reviewKatBtn.parentElement;
             if (buttonGroup) {
@@ -686,7 +698,6 @@
           return;
         }
 
-        // Fallback: search all buttons by text
         document.querySelectorAll('button, kat-button').forEach(btn => {
           const text = (btn.textContent || btn.getAttribute('label') || '').replace(/\s+/g, ' ').trim().toLowerCase();
           if (text === 'review') {
@@ -694,7 +705,6 @@
               btn.classList.add('hc-blocked-btn');
               btn.setAttribute('data-hc-blocked', 'true');
             }
-            // Also block inner button if kat-button
             const inner = btn.querySelector('button');
             if (inner && !inner.classList.contains('hc-blocked-btn')) {
               inner.classList.add('hc-blocked-btn');
@@ -703,7 +713,6 @@
           }
         });
 
-        // Add prompt once below the button area
         if (!document.querySelector('.hc-block-prompt')) {
           const blocked = document.querySelector('.hc-blocked-btn');
           if (blocked) {
@@ -718,6 +727,33 @@
         }
       }
 
+            function hcBuildCompletedForm() {
+        const isAnnotated = hcIsCaseAnnotated(hcCaseId);
+        if (!isAnnotated) return null;
+
+        const { html, totalQuestions } = hcBuildFormHTML(false);
+        const savedState = hcGetSavedFormState();
+
+        const formHtml = `
+          <div class="hc-form-header">
+            <span class="hc-form-title">ILAC Investigation Checklist</span>
+          </div>
+          <div class="hc-completed-banner">
+            <div class="hc-annotated-badge">✓ Checklist Completed</div>
+            <p style="font-size: 11px; color: #718096; margin-top: 4px;">Edit answers and re-annotate if needed</p>
+          </div>
+          <div class="hc-form-body">
+            ${html}
+          </div>
+          <div id="hc-status" class="hc-status-msg"></div>
+          <div class="hc-form-footer">
+            <button id="hc-annotate-btn">Re-Annotate</button>
+          </div>
+        `;
+
+        return { formHtml, savedAnswers: savedState?.answers || {}, totalQuestions };
+      }
+
       function hcInjectSidebar() {
         const sidebar = document.querySelector('#page-sidebar');
         if (!sidebar || document.getElementById('hc-sidebar-container')) return;
@@ -729,39 +765,26 @@
         const toggleBtn = document.createElement('button');
         toggleBtn.id = 'hc-toggle-btn';
 
-        if (hcIsCaseAnnotated(hcCaseId)) {
+        const isAnnotated = hcIsCaseAnnotated(hcCaseId);
+
+        if (isAnnotated) {
           toggleBtn.textContent = '✓ Checklist Completed';
           toggleBtn.classList.add('annotated');
         } else {
           toggleBtn.textContent = 'Hygiene Checks';
         }
 
-                toggleBtn.addEventListener('click', () => {
-          if (hcIsCaseAnnotated(hcCaseId)) return;
-
-          const form = document.getElementById('hc-checklist-form');
-          if (!form) return;
-
-          if (form.classList.contains('visible')) {
-            form.classList.remove('visible');
-            hcFormVisible = false;
-            toggleBtn.textContent = 'Hygiene Checks';
-          } else {
-            form.classList.add('visible');
-            hcFormVisible = true;
-            toggleBtn.textContent = 'Hide Checklist';
-          }
-          hcSaveFormState();
-        });
-
-        const { html, totalQuestions } = hcBuildFormHTML();
-
         const form = document.createElement('div');
         form.id = 'hc-checklist-form';
 
-                if (hcIsCaseAnnotated(hcCaseId)) {
-          form.style.display = 'none';
+        if (isAnnotated) {
+          // Build read-only completed form
+          const completed = hcBuildCompletedForm();
+          if (completed) {
+            form.innerHTML = completed.formHtml;
+          }
         } else {
+          const { html, totalQuestions } = hcBuildFormHTML(false);
           form.innerHTML = `
             <div class="hc-form-header">
               <span class="hc-form-title">ILAC Investigation Checklist</span>
@@ -776,14 +799,54 @@
           `;
         }
 
+        toggleBtn.addEventListener('click', () => {
+          if (form.classList.contains('visible')) {
+            form.classList.remove('visible');
+            hcFormVisible = false;
+            toggleBtn.textContent = isAnnotated ? '✓ Checklist Completed' : 'Hygiene Checks';
+            if (isAnnotated) toggleBtn.classList.add('annotated');
+          } else {
+            form.classList.add('visible');
+            hcFormVisible = true;
+            toggleBtn.textContent = 'Hide Checklist';
+            toggleBtn.classList.remove('annotated');
+          }
+          if (!isAnnotated) hcSaveFormState();
+        });
+
         container.appendChild(toggleBtn);
         container.appendChild(form);
-
         sidebar.insertBefore(container, sidebar.firstChild);
 
-                if (!hcIsCaseAnnotated(hcCaseId)) {
+                if (isAnnotated) {
+          // Restore saved answers into form
+          const savedState = hcGetSavedFormState();
+          if (savedState && savedState.answers) {
+            Object.entries(savedState.answers).forEach(([name, value]) => {
+              const radio = form.querySelector(`input[name="${name}"][value="${value}"]`);
+              if (radio) radio.checked = true;
+            });
+          }
+
+          // Bind re-annotate button
+          const reAnnotateBtn = document.getElementById('hc-annotate-btn');
+          if (reAnnotateBtn) {
+            const totalQ = hcBuildFormHTML(false).totalQuestions;
+            reAnnotateBtn.addEventListener('click', () => {
+              hcSubmitChecklist(totalQ);
+            });
+
+            // Auto-save on radio change
+            form.addEventListener('change', (e) => {
+              if (e.target.type === 'radio') {
+                hcSaveFormState();
+              }
+            });
+          }
+        } else {
           const annotateBtn = document.getElementById('hc-annotate-btn');
           if (annotateBtn) {
+            const totalQuestions = hcBuildFormHTML(false).totalQuestions;
             annotateBtn.addEventListener('click', () => {
               hcSubmitChecklist(totalQuestions);
             });
@@ -832,6 +895,9 @@
           output += '\n';
         });
 
+        // Save answers before clearing form state
+        hcSaveFormState();
+
         navigator.clipboard.writeText(output).then(() => {
           const annotateKatBtn = document.querySelector('kat-button[label="Annotate"]');
           if (annotateKatBtn) {
@@ -841,12 +907,18 @@
                       || document.querySelector('kat-textarea[label="Annotation"] textarea');
               const saveBtn = document.querySelector('kat-button[label="Save annotation"] button');
               if (area && saveBtn) {
-                area.value = output;
+                const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+                if (nativeSetter) {
+                  nativeSetter.call(area, output);
+                } else {
+                  area.value = output;
+                }
                 area.dispatchEvent(new Event('input', { bubbles: true }));
+                area.dispatchEvent(new Event('change', { bubbles: true }));
+                area.dispatchEvent(new Event('blur', { bubbles: true }));
                 saveBtn.click();
 
                 hcSetAnnotationForCase(hcCaseId, true);
-                hcClearFormState();
                 hcUnblockAllButtons();
 
                 const toggleBtn = document.getElementById('hc-toggle-btn');
@@ -855,15 +927,47 @@
                   toggleBtn.classList.add('annotated');
                 }
 
-                                const form = document.getElementById('hc-checklist-form');
+                // Rebuild form as read-only
+                const form = document.getElementById('hc-checklist-form');
                 if (form) {
-                  form.style.display = 'none';
+                  const completed = hcBuildCompletedForm();
+                  if (completed) {
+                    form.innerHTML = completed.formHtml;
+                    // Restore answers into read-only form
+                    const savedState = hcGetSavedFormState();
+                    if (savedState && savedState.answers) {
+                      Object.entries(savedState.answers).forEach(([name, value]) => {
+                        const radio = form.querySelector(`input[name="${name}"][value="${value}"]`);
+                        if (radio) radio.checked = true;
+                      });
+                    }
+                  }
                   form.classList.remove('visible');
                   hcFormVisible = false;
                 }
+
+                // Re-bind toggle for completed state
+                if (toggleBtn) {
+                  const newToggle = toggleBtn.cloneNode(true);
+                  toggleBtn.parentNode.replaceChild(newToggle, toggleBtn);
+                  newToggle.addEventListener('click', () => {
+                    const f = document.getElementById('hc-checklist-form');
+                    if (!f) return;
+                    if (f.classList.contains('visible')) {
+                      f.classList.remove('visible');
+                      hcFormVisible = false;
+                      newToggle.textContent = '✓ Checklist Completed';
+                      newToggle.classList.add('annotated');
+                    } else {
+                      f.classList.add('visible');
+                      hcFormVisible = true;
+                      newToggle.textContent = 'Hide Checklist';
+                      newToggle.classList.remove('annotated');
+                    }
+                  });
+                }
               } else {
                 hcSetAnnotationForCase(hcCaseId, true);
-                hcClearFormState();
                 hcUnblockAllButtons();
 
                 const toggleBtn = document.getElementById('hc-toggle-btn');
@@ -880,7 +984,6 @@
             }, 200);
           } else {
             hcSetAnnotationForCase(hcCaseId, true);
-            hcClearFormState();
             hcUnblockAllButtons();
 
             const toggleBtn = document.getElementById('hc-toggle-btn');
@@ -924,7 +1027,7 @@
       hcButtonObserver.observe(document.body, { childList: true, subtree: true });
     }
 
-        // =============================================
+    // =============================================
     // BEACON 2.0 PAGE (Harmony)
     // =============================================
 
@@ -955,20 +1058,17 @@
         hcBeaconCaseId = hcGetCaseIdFromBeacon();
         if (!hcBeaconCaseId) return;
 
-        // If annotated, always unblock and stop
         if (hcIsCaseAnnotated(hcBeaconCaseId)) {
           hcUnblockBeaconButtons();
           return;
         }
 
+        // Already blocked, skip
+        if (document.querySelector('.hc-blocked-btn')) return;
+
         let foundBtn = null;
 
-        // Find Submit BLURB button
         document.querySelectorAll('button, [role="button"]').forEach(btn => {
-          if (btn.classList.contains('hc-blocked-btn')) {
-            foundBtn = btn;
-            return;
-          }
           const text = (btn.textContent || '').trim();
           if (/^submit\s*blurb$/i.test(text)) {
             btn.classList.add('hc-blocked-btn');
@@ -977,13 +1077,8 @@
           }
         });
 
-        // Also check kat-button elements
         if (!foundBtn) {
           document.querySelectorAll('kat-button').forEach(katBtn => {
-            if (katBtn.classList.contains('hc-blocked-btn')) {
-              foundBtn = katBtn;
-              return;
-            }
             const label = (katBtn.getAttribute('label') || '').trim();
             const text = (katBtn.textContent || '').trim();
             if (/^submit\s*blurb$/i.test(label) || /^submit\s*blurb$/i.test(text)) {
@@ -999,7 +1094,6 @@
           });
         }
 
-        // Add one prompt
         if (foundBtn && !document.querySelector('.hc-block-prompt')) {
           const prompt = document.createElement('div');
           prompt.className = 'hc-block-prompt';
@@ -1013,7 +1107,6 @@
         }
       }
 
-      // MutationObserver for dynamic content
       const hcBeaconObserver = new MutationObserver(() => {
         const caseId = hcGetCaseIdFromBeacon();
         if (caseId) {
@@ -1042,7 +1135,11 @@
         }
       }, 2000);
     }
-  }
+
+  } // end of isFeatureEnabled('hygieneChecks')
+
+
+
 
   /////////////////////////////////
   // 2) RCAI Expand Findings     //
