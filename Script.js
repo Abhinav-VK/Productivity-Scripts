@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     8.1.1
+// @version     8.1.2
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -555,8 +555,64 @@
 
     if (/paragon-.*\.amazon\.com\/hz\/(view-case|case)\?caseId=/.test(location.href)) {
 
-      const hcCaseId = hcGetCaseIdFromUrl();
+            const hcCaseId = hcGetCaseIdFromUrl();
       let hcFormVisible = false;
+
+      function hcSaveFormState() {
+        if (!hcCaseId) return;
+        const answers = {};
+        document.querySelectorAll('#hc-checklist-form input[type="radio"]:checked').forEach(r => {
+          answers[r.name] = r.value;
+        });
+        const state = {
+          answers: answers,
+          visible: hcFormVisible
+        };
+        GM_setValue('hcFormState_' + hcCaseId, JSON.stringify(state));
+      }
+
+      function hcGetSavedFormState() {
+        if (!hcCaseId) return null;
+        try {
+          const raw = GM_getValue('hcFormState_' + hcCaseId, '{}');
+          const data = JSON.parse(raw);
+          if (data.answers) return data;
+          return null;
+        } catch {
+          return null;
+        }
+      }
+
+      function hcClearFormState() {
+        if (!hcCaseId) return;
+        GM_setValue('hcFormState_' + hcCaseId, '{}');
+      }
+
+      function hcRestoreFormState() {
+        const state = hcGetSavedFormState();
+        if (!state) return;
+
+        // Restore answers
+        if (state.answers) {
+          Object.entries(state.answers).forEach(([name, value]) => {
+            const radio = document.querySelector(`input[name="${name}"][value="${value}"]`);
+            if (radio) radio.checked = true;
+          });
+        }
+
+        // Restore visibility
+        if (state.visible) {
+          const form = document.getElementById('hc-checklist-form');
+          const toggleBtn = document.getElementById('hc-toggle-btn');
+          if (form) {
+            form.classList.add('visible');
+            hcFormVisible = true;
+          }
+          if (toggleBtn) {
+            toggleBtn.textContent = 'Hide Checklist';
+          }
+        }
+      }
 
       function hcBuildFormHTML() {
         let questionIndex = 0;
@@ -680,7 +736,7 @@
           toggleBtn.textContent = 'Hygiene Checks';
         }
 
-        toggleBtn.addEventListener('click', () => {
+                toggleBtn.addEventListener('click', () => {
           const form = document.getElementById('hc-checklist-form');
           if (!form) return;
 
@@ -693,6 +749,7 @@
             hcFormVisible = true;
             toggleBtn.textContent = 'Hide Checklist';
           }
+          hcSaveFormState();
         });
 
         const { html, totalQuestions } = hcBuildFormHTML();
@@ -730,13 +787,23 @@
 
         sidebar.insertBefore(container, sidebar.firstChild);
 
-        if (!hcIsCaseAnnotated(hcCaseId)) {
+                if (!hcIsCaseAnnotated(hcCaseId)) {
           const annotateBtn = document.getElementById('hc-annotate-btn');
           if (annotateBtn) {
             annotateBtn.addEventListener('click', () => {
               hcSubmitChecklist(totalQuestions);
             });
           }
+
+          // Restore saved state
+          hcRestoreFormState();
+
+          // Auto-save on every radio change
+          form.addEventListener('change', (e) => {
+            if (e.target.type === 'radio') {
+              hcSaveFormState();
+            }
+          });
         }
       }
 
@@ -785,6 +852,7 @@
                 saveBtn.click();
 
                 hcSetAnnotationForCase(hcCaseId, true);
+                hcClearFormState();
                 hcUnblockAllButtons();
 
                 const toggleBtn = document.getElementById('hc-toggle-btn');
@@ -807,6 +875,7 @@
                 }
               } else {
                 hcSetAnnotationForCase(hcCaseId, true);
+                hcClearFormState();
                 hcUnblockAllButtons();
 
                 const toggleBtn = document.getElementById('hc-toggle-btn');
@@ -823,6 +892,7 @@
             }, 200);
           } else {
             hcSetAnnotationForCase(hcCaseId, true);
+            hcClearFormState();
             hcUnblockAllButtons();
 
             const toggleBtn = document.getElementById('hc-toggle-btn');
