@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     8.0.1
+// @version     8.1.1
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -38,7 +38,7 @@
   /////////////////////////////
 
     const FEATURES = {
-        hygieneChecks: { name: "Hygiene Checks", default: false },
+        hygieneChecks: { name: "Hygiene Checks", default: true },
         serenityExtractor: { name: "Serenity ID Extractor", default: true },
         filterAllMID: { name: "Check Mapping", default: true },
         checkMappingILAC: { name: "Check Mapping (ILAC)", default: true },
@@ -263,245 +263,723 @@
     }
   });
 
-  ////////////////////////////////
+
+
+    ////////////////////////////////
   // 1) Hygiene Checks Script   //
   ////////////////////////////////
 
-  if (isFeatureEnabled('hygieneChecks') &&
-      (/paragon-.*\.amazon\.com\/hz\/view-case\?caseId=/.test(location.href) ||
-       /paragon-na\.amazon\.com\/hz\/case\?caseId=/.test(location.href))) {
+  if (isFeatureEnabled('hygieneChecks')) {
 
-    let reviewButtonGlobal = null;
-    let updateButtonGlobal = null;
-    const caseIdMatch = location.href.match(/caseId=([^&]+)/);
-    const currentCaseId = caseIdMatch ? caseIdMatch[1] : null;
-
-    function getAnnotationMap() {
-      const map = localStorage.getItem('hygieneAnnotationMap');
-      return map ? JSON.parse(map) : {};
-    }
-
-    function setAnnotationForCase(caseId, value) {
-      const map = getAnnotationMap();
-      map[caseId] = value;
-      localStorage.setItem('hygieneAnnotationMap', JSON.stringify(map));
-    }
-
-    function isCaseAnnotated(caseId) {
-      const map = getAnnotationMap();
-      return map[caseId] === true;
-    }
-
-    function initializeButtons() {
-      document.querySelectorAll('button').forEach(btn => {
-        const t = btn.textContent.replace(/\s+/g, '').toLowerCase();
-        if (t === 'review') {
-          reviewButtonGlobal = btn;
-          btn.disabled = true;
-        }
-        if (t === 'updatecasestatus') {
-          updateButtonGlobal = btn;
-          btn.disabled = true;
-        }
-      });
-      if (currentCaseId && isCaseAnnotated(currentCaseId)) {
-        if (reviewButtonGlobal) reviewButtonGlobal.disabled = false;
-        if (updateButtonGlobal) updateButtonGlobal.disabled = false;
+    const HC_ANNOTATION_KEY = 'hygieneAnnotationMap';
+    const HC_SECTIONS = [
+      {
+        title: 'RC',
+        questions: [
+          'Are SANTOS and Amazon Distribution checked in Seller Central?',
+          'Are all duplicate cases for the shipment thoroughly reviewed before proceeding to merge or transfer to ICON review?',
+          'Is the RC selected for all units, including overage and manual investigation?'
+        ]
+      },
+      {
+        title: 'PSE',
+        questions: [
+          'Are additional shipments addressed, if any?',
+          'Is the denial quantity mentioned in the final outbound verified as correct?',
+          'Is the RMS being approved for the correct units?',
+          'Are the Shipment ID and all ASINs confirmed as covered in the final outbound?',
+          'Are two RMS IDs mentioned in the blurb and attached to the Paragon case?',
+          'Is the pre approved edit added in pushback blurb for HI-ASP queue case?',
+          'Is the outbound being sent in seller\'s latest communication language?'
+        ]
+      },
+      {
+        title: 'Hygiene',
+        questions: [
+          'Is the File Storage SIM attached (with RCAI results), if applicable?',
+          'Are the Shipment ID, RMS ID, ILAC (twice) attached to the case?',
+          'Is the RMS tool Max:0 error annotated?',
+          'Are separate RMS IDs created for supported and unsupported FNSKUs?',
+          'Are Beacon open events annotated for overages?',
+          'Is the ILAC_stranded_inventory blurb included, if newly mapped units were recovered?',
+          'Is corresponding BOO mentioned instead of different seller\'s X00 in substitution decline blurb?',
+          'Is an Andon raised for Custom OB, if applicable?',
+          'Is the source of the shipped date annotated in POO section of Beacon?',
+          'Is the status of the created RMS confirmed?',
+          'Is the RMS approval reason selected based on which root cause has the majority of units being approved RMS for?',
+          'Is the reason code selected based on the majority of FNSKUs?'
+        ]
       }
-    }
-    setTimeout(initializeButtons, 2000);
-
-    let keysPressed = new Set();
-    document.addEventListener('keydown', e => {
-      keysPressed.add(e.key.toLowerCase());
-      if (keysPressed.has('v') && keysPressed.has('s')) {
-        const btn = document.querySelector('#peek-now-button button');
-        if (btn) btn.click();
-      }
-    });
-    document.addEventListener('keyup', e => keysPressed.delete(e.key.toLowerCase()));
-
-    document.addEventListener('keydown', event => {
-      const hf = document.getElementById('HygieneCheckForm');
-      const mf = document.getElementById('MissingUnitsForm');
-      if (event.key === 'Escape') {
-        if (hf && hf.style.display === 'block') hf.style.display = 'none';
-        if (mf && mf.style.display === 'block') mf.style.display = 'none';
-      }
-      if (event.altKey && event.key.toLowerCase() === 'y' &&
-          !['INPUT','TEXTAREA'].includes(document.activeElement.tagName)) {
-        event.preventDefault();
-        const link = document.getElementById('HygieneCheckLink');
-        if (link) link.click();
-      }
-    });
-
-    const sidebar = document.querySelector('#page-sidebar');
-    if (sidebar) {
-      const container = document.createElement('div');
-      Object.assign(container.style, {
-        display: 'flex', flexDirection: 'column', alignItems: 'center',
-        width: '100%', marginTop: '10px', marginBottom: '20px'
-      });
-
-      const links = document.createElement('div');
-      Object.assign(links.style, {
-        display:'flex', gap:'15px', width:'100%'
-      });
-
-      const hcLink = document.createElement('a');
-      hcLink.href = '#';
-      hcLink.id = 'HygieneCheckLink';
-      hcLink.textContent = 'Hygiene Checks';
-      Object.assign(hcLink.style, {
-        fontSize: '14px', color: '#6a5acd',
-        textDecoration: 'underline', cursor: 'pointer'
-      });
-      hcLink.addEventListener('click', e => {
-        e.preventDefault();
-        HygieneCheckForm.style.display = 'block';
-      });
-
-      const muLink = document.createElement('a');
-      muLink.href = '#';
-      muLink.id = 'MissingUnitsLink';
-      muLink.textContent = 'ILAC Missing Units Credit';
-      Object.assign(muLink.style, {
-        fontSize: '14px', color: '#6a5acd',
-        textDecoration: 'underline', cursor: 'pointer',
-        display: 'none'
-      });
-      muLink.addEventListener('click', e => {
-        e.preventDefault();
-        MissingUnitsForm.style.display = 'block';
-      });
-
-      links.appendChild(hcLink);
-      links.appendChild(muLink);
-      container.appendChild(links);
-      sidebar.insertBefore(container, sidebar.firstChild);
-    }
-
-    const HygieneCheckForm = document.createElement('div');
-    HygieneCheckForm.id = 'HygieneCheckForm';
-    Object.assign(HygieneCheckForm.style, {
-      display: 'none', position: 'fixed',
-      top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
-      background: 'white', padding: '30px',
-      borderRadius: '12px', boxShadow: '0 4px 15px rgba(0,0,0,0.2)',
-      zIndex: '1001', maxHeight: '80vh', overflowY: 'auto',
-      width: '800px', maxWidth: '90vw'
-    });
-    document.body.appendChild(HygieneCheckForm);
-
-    const questions = [
-      "Is the POO/POD Docs & RCAI screenshot attached to File Storage SIM-T?",
-      "Have you attached all relevant TTs, SIMs & Duplicate Case IDs (if any) to the case?",
-      "Have you selected the correct REASON CODE on paragon?",
-      "Have you selected \"No Root Cause Summary\" for \"Overages\" asked by the seller?",
-      "Have you verified the Shortages discrepancies b/w ILAC & Seller ask?",
-      "Have you selected correct Blurb & RC basis your RCAI?",
-      "Have you completed the Invoice Analysis?",
-      "Proof-read the entire blurb to ensure that all FNSKUs under investigation are addressed in the outbound.",
-      "Is there a RMS ticket created below 5K? If yes, have you resolved it?"
     ];
 
-    let formHTML = `<h2 style="text-align:center;color:#333;margin-bottom:15px;">ILAC Investigation Checklist</h2><form id="checklistForm">`;
-    questions.forEach((q, i) => {
-      formHTML += `
-        <div style="margin-bottom:5px;"><b>${i+1})</b> ${q}</div>
-        <div style="display:flex;gap:50px;align-items:center;margin-bottom:20px;">
-          <label>
-            <input type="radio" name="q${i+1}" value="Yes"> Yes
-          </label>
-          <label>
-            <input type="radio" name="q${i+1}" value="No"> No
-          </label>
-        </div>`;
-    });
-    formHTML += `
-      <div style="text-align:center;margin-top:20px;">
-        <button type="button" id="submitChecklist" style="
-          background:#007BFF;color:white;padding:12px 24px;
-          font-size:16px;border:none;border-radius:5px;cursor:pointer;">
-          Annotate
-        </button>
-      </div>
-      <pre id="output" style="
-        display:none;margin-top:20px;background:#f8f9fa;padding:10px;
-        border-radius:5px;color:black;"></pre>
-    </form>`;
-    HygieneCheckForm.innerHTML = formHTML;
+    function hcGetCaseIdFromUrl() {
+      const match = location.href.match(/caseId=([^&]+)/);
+      return match ? match[1] : null;
+    }
 
-    document.getElementById('submitChecklist').addEventListener('click', () => {
-      let output = 'ILAC Investigation Checklist:\n';
-      for (let i = 1; i <= questions.length; i++) {
-        const sel = document.querySelector(`input[name="q${i}"]:checked`);
-        if (!sel) return alert('Please answer all questions');
-        output += `${i}) ${questions[i-1]} - ${sel.value}\n`;
+    function hcGetAnnotationMap() {
+      try {
+        const map = GM_getValue(HC_ANNOTATION_KEY, '{}');
+        return JSON.parse(map);
+      } catch {
+        return {};
       }
-      navigator.clipboard.writeText(output).then(() => {
-        const btn = document.querySelector('kat-button[label="Annotate"]');
-        if (btn) {
-          btn.click();
-          setTimeout(() => {
-            let area = document.getElementById('katal-id-17')
-                    || document.querySelector('kat-textarea[label="Annotation"] textarea');
-            const saveBtn = document.querySelector('kat-button[label="Save annotation"] button');
-            if (area && saveBtn) {
-              area.value = output;
-              area.dispatchEvent(new Event('input', { bubbles: true }));
-              saveBtn.click();
-              if (reviewButtonGlobal) reviewButtonGlobal.disabled = false;
-              if (updateButtonGlobal) updateButtonGlobal.disabled = false;
-              if (currentCaseId) setAnnotationForCase(currentCaseId, true);
-              HygieneCheckForm.style.display = 'none';
+    }
+
+    function hcSetAnnotationForCase(caseId, value) {
+      const map = hcGetAnnotationMap();
+      map[caseId] = { annotated: value, timestamp: Date.now() };
+      GM_setValue(HC_ANNOTATION_KEY, JSON.stringify(map));
+    }
+
+    function hcIsCaseAnnotated(caseId) {
+      if (!caseId) return false;
+      const map = hcGetAnnotationMap();
+      const entry = map[caseId];
+      if (!entry) return false;
+      return entry.annotated === true;
+    }
+
+    GM_addStyle(`
+      #hc-checklist-form {
+        background: white;
+        border-radius: 10px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        border: 1px solid #e1e5e9;
+        overflow: hidden;
+        margin-bottom: 16px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        display: none;
+      }
+
+      #hc-checklist-form.visible {
+        display: block;
+      }
+
+      .hc-form-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 12px 16px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .hc-form-title {
+        color: white;
+        font-weight: 700;
+        font-size: 15px;
+      }
+
+      .hc-form-body {
+        padding: 14px;
+        max-height: 60vh;
+        overflow-y: auto;
+      }
+
+      .hc-section-title {
+        font-size: 13px;
+        font-weight: 700;
+        color: #667eea;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        padding: 8px 0 6px 0;
+        margin-top: 10px;
+        border-bottom: 2px solid #667eea;
+        margin-bottom: 8px;
+      }
+
+      .hc-section-title:first-child {
+        margin-top: 0;
+      }
+
+      .hc-question {
+        padding: 8px 0;
+        border-bottom: 1px solid #f0f0f0;
+      }
+
+      .hc-question:last-child {
+        border-bottom: none;
+      }
+
+      .hc-question-text {
+        font-size: 12.5px;
+        color: #2d3748;
+        margin-bottom: 6px;
+        line-height: 1.4;
+      }
+
+      .hc-question-number {
+        font-weight: 700;
+        color: #667eea;
+        margin-right: 4px;
+      }
+
+      .hc-options {
+        display: flex;
+        gap: 16px;
+        padding-left: 20px;
+      }
+
+      .hc-options label {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 12px;
+        color: #4a5568;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .hc-options input[type="radio"] {
+        margin: 0;
+        accent-color: #667eea;
+        cursor: pointer;
+      }
+
+      .hc-form-footer {
+        padding: 12px 14px;
+        background: #fafbfc;
+        border-top: 1px solid #e1e5e9;
+        display: flex;
+        justify-content: center;
+      }
+
+      #hc-annotate-btn {
+        padding: 10px 32px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      #hc-annotate-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+      }
+
+      #hc-annotate-btn:active {
+        transform: translateY(0);
+      }
+
+      .hc-status-msg {
+        text-align: center;
+        padding: 8px;
+        font-size: 12px;
+        font-weight: 600;
+        display: none;
+      }
+
+      .hc-status-msg.error {
+        display: block;
+        color: #e53e3e;
+        background: #fef2f2;
+        border-radius: 4px;
+        margin: 0 14px 10px 14px;
+      }
+
+      .hc-status-msg.success {
+        display: block;
+        color: #166534;
+        background: #dcfce7;
+        border-radius: 4px;
+        margin: 0 14px 10px 14px;
+      }
+
+      #hc-toggle-btn {
+        display: block;
+        width: 100%;
+        padding: 10px 16px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        text-align: center;
+        margin-bottom: 12px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }
+
+      #hc-toggle-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+      }
+
+      #hc-toggle-btn.annotated {
+        background: linear-gradient(135deg, #48bb78, #38a169);
+      }
+
+      .hc-blocked-btn {
+        opacity: 0.5 !important;
+        cursor: not-allowed !important;
+        pointer-events: none !important;
+      }
+
+      .hc-block-prompt {
+        display: block;
+        font-size: 12px;
+        color: #e53e3e;
+        font-weight: 600;
+        margin-top: 8px;
+        padding: 6px 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        animation: hcFadeIn 0.3s ease-out;
+      }
+
+      @keyframes hcFadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+
+      .hc-annotated-badge {
+        display: inline-block;
+        padding: 3px 10px;
+        background: linear-gradient(135deg, #48bb78, #38a169);
+        color: white;
+        border-radius: 10px;
+        font-size: 11px;
+        font-weight: 700;
+        margin-bottom: 8px;
+      }
+    `);
+
+    // =============================================
+    // PARAGON PAGE
+    // =============================================
+
+    if (/paragon-.*\.amazon\.com\/hz\/(view-case|case)\?caseId=/.test(location.href)) {
+
+      const hcCaseId = hcGetCaseIdFromUrl();
+      let hcFormVisible = false;
+
+      function hcBuildFormHTML() {
+        let questionIndex = 0;
+        let html = '';
+
+        HC_SECTIONS.forEach(section => {
+          html += `<div class="hc-section-title">${section.title}</div>`;
+          section.questions.forEach(q => {
+            questionIndex++;
+            html += `
+              <div class="hc-question">
+                <div class="hc-question-text">
+                  <span class="hc-question-number">${questionIndex})</span> ${q}
+                </div>
+                <div class="hc-options">
+                  <label><input type="radio" name="hc-q${questionIndex}" value="Yes"> Yes</label>
+                  <label><input type="radio" name="hc-q${questionIndex}" value="No"> No</label>
+                  <label><input type="radio" name="hc-q${questionIndex}" value="NA"> NA</label>
+                </div>
+              </div>
+            `;
+          });
+        });
+
+        return { html, totalQuestions: questionIndex };
+      }
+
+      function hcRemovePrompts() {
+        document.querySelectorAll('.hc-block-prompt').forEach(p => p.remove());
+      }
+
+      function hcUnblockAllButtons() {
+        document.querySelectorAll('.hc-blocked-btn').forEach(btn => {
+          btn.classList.remove('hc-blocked-btn');
+          btn.removeAttribute('data-hc-blocked');
+        });
+        hcRemovePrompts();
+      }
+
+      function hcFindAndBlockButtons() {
+        if (hcIsCaseAnnotated(hcCaseId)) {
+          hcUnblockAllButtons();
+          return;
+        }
+
+        // Find the Review kat-button specifically
+        const reviewKatBtn = document.querySelector('kat-button.transition-button[label="Review"]');
+        if (reviewKatBtn) {
+          // Block the inner <button> inside kat-button
+          const innerBtn = reviewKatBtn.querySelector('button');
+          if (innerBtn && !innerBtn.classList.contains('hc-blocked-btn')) {
+            innerBtn.classList.add('hc-blocked-btn');
+            innerBtn.setAttribute('data-hc-blocked', 'true');
+          }
+          // Also block the kat-button itself
+          if (!reviewKatBtn.classList.contains('hc-blocked-btn')) {
+            reviewKatBtn.classList.add('hc-blocked-btn');
+            reviewKatBtn.setAttribute('data-hc-blocked', 'true');
+          }
+
+          // Add prompt after the button group div (once)
+          if (!document.querySelector('.hc-block-prompt')) {
+            const buttonGroup = reviewKatBtn.closest('.transition-button-group') || reviewKatBtn.parentElement;
+            if (buttonGroup) {
+              const prompt = document.createElement('div');
+              prompt.className = 'hc-block-prompt';
+              prompt.textContent = 'Complete the Hygiene Checks to proceed further';
+              buttonGroup.insertAdjacentElement('afterend', prompt);
             }
-          }, 100);
+          }
+          return;
+        }
+
+        // Fallback: search all buttons by text
+        document.querySelectorAll('button, kat-button').forEach(btn => {
+          const text = (btn.textContent || btn.getAttribute('label') || '').replace(/\s+/g, ' ').trim().toLowerCase();
+          if (text === 'review') {
+            if (!btn.classList.contains('hc-blocked-btn')) {
+              btn.classList.add('hc-blocked-btn');
+              btn.setAttribute('data-hc-blocked', 'true');
+            }
+            // Also block inner button if kat-button
+            const inner = btn.querySelector('button');
+            if (inner && !inner.classList.contains('hc-blocked-btn')) {
+              inner.classList.add('hc-blocked-btn');
+              inner.setAttribute('data-hc-blocked', 'true');
+            }
+          }
+        });
+
+        // Add prompt once below the button area
+        if (!document.querySelector('.hc-block-prompt')) {
+          const blocked = document.querySelector('.hc-blocked-btn');
+          if (blocked) {
+            const container = blocked.closest('.transition-button-group') || blocked.closest('div') || blocked.parentElement;
+            if (container) {
+              const prompt = document.createElement('div');
+              prompt.className = 'hc-block-prompt';
+              prompt.textContent = 'Complete the Hygiene Checks to proceed further';
+              container.insertAdjacentElement('afterend', prompt);
+            }
+          }
+        }
+      }
+
+      function hcInjectSidebar() {
+        const sidebar = document.querySelector('#page-sidebar');
+        if (!sidebar || document.getElementById('hc-sidebar-container')) return;
+
+        const container = document.createElement('div');
+        container.id = 'hc-sidebar-container';
+        container.style.cssText = 'width: 100%; padding: 0 10px; box-sizing: border-box; margin-top: 10px;';
+
+        const toggleBtn = document.createElement('button');
+        toggleBtn.id = 'hc-toggle-btn';
+
+        if (hcIsCaseAnnotated(hcCaseId)) {
+          toggleBtn.textContent = '✓ Checklist Completed';
+          toggleBtn.classList.add('annotated');
         } else {
-          alert('Annotate button not found!');
+          toggleBtn.textContent = 'Hygiene Checks';
+        }
+
+        toggleBtn.addEventListener('click', () => {
+          const form = document.getElementById('hc-checklist-form');
+          if (!form) return;
+
+          if (form.classList.contains('visible')) {
+            form.classList.remove('visible');
+            hcFormVisible = false;
+            toggleBtn.textContent = hcIsCaseAnnotated(hcCaseId) ? '✓ Checklist Completed' : 'Hygiene Checks';
+          } else {
+            form.classList.add('visible');
+            hcFormVisible = true;
+            toggleBtn.textContent = 'Hide Checklist';
+          }
+        });
+
+        const { html, totalQuestions } = hcBuildFormHTML();
+
+        const form = document.createElement('div');
+        form.id = 'hc-checklist-form';
+
+        if (hcIsCaseAnnotated(hcCaseId)) {
+          form.innerHTML = `
+            <div class="hc-form-header">
+              <span class="hc-form-title">ILAC Investigation Checklist</span>
+            </div>
+            <div class="hc-form-body" style="text-align: center; padding: 20px;">
+              <div class="hc-annotated-badge">✓ Checklist Completed</div>
+              <p style="font-size: 12px; color: #718096; margin-top: 8px;">This case has been annotated.</p>
+            </div>
+          `;
+        } else {
+          form.innerHTML = `
+            <div class="hc-form-header">
+              <span class="hc-form-title">ILAC Investigation Checklist</span>
+            </div>
+            <div class="hc-form-body">
+              ${html}
+            </div>
+            <div id="hc-status" class="hc-status-msg"></div>
+            <div class="hc-form-footer">
+              <button id="hc-annotate-btn">Annotate</button>
+            </div>
+          `;
+        }
+
+        container.appendChild(toggleBtn);
+        container.appendChild(form);
+
+        sidebar.insertBefore(container, sidebar.firstChild);
+
+        if (!hcIsCaseAnnotated(hcCaseId)) {
+          const annotateBtn = document.getElementById('hc-annotate-btn');
+          if (annotateBtn) {
+            annotateBtn.addEventListener('click', () => {
+              hcSubmitChecklist(totalQuestions);
+            });
+          }
+        }
+      }
+
+      function hcSubmitChecklist(totalQuestions) {
+        const statusEl = document.getElementById('hc-status');
+
+        for (let i = 1; i <= totalQuestions; i++) {
+          const selected = document.querySelector(`input[name="hc-q${i}"]:checked`);
+          if (!selected) {
+            if (statusEl) {
+              statusEl.textContent = `Please answer all questions (question ${i} is unanswered)`;
+              statusEl.className = 'hc-status-msg error';
+            }
+            const unansweredQ = document.querySelector(`input[name="hc-q${i}"]`);
+            if (unansweredQ) {
+              unansweredQ.closest('.hc-question')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+            return;
+          }
+        }
+
+        let output = 'ILAC Investigation Checklist:\n\n';
+        let questionIndex = 0;
+
+        HC_SECTIONS.forEach(section => {
+          output += `[${section.title}]\n`;
+          section.questions.forEach(q => {
+            questionIndex++;
+            const sel = document.querySelector(`input[name="hc-q${questionIndex}"]:checked`);
+            output += `${questionIndex}) ${q} — ${sel.value}\n`;
+          });
+          output += '\n';
+        });
+
+        navigator.clipboard.writeText(output).then(() => {
+          const annotateKatBtn = document.querySelector('kat-button[label="Annotate"]');
+          if (annotateKatBtn) {
+            annotateKatBtn.click();
+            setTimeout(() => {
+              let area = document.getElementById('katal-id-17')
+                      || document.querySelector('kat-textarea[label="Annotation"] textarea');
+              const saveBtn = document.querySelector('kat-button[label="Save annotation"] button');
+              if (area && saveBtn) {
+                area.value = output;
+                area.dispatchEvent(new Event('input', { bubbles: true }));
+                saveBtn.click();
+
+                hcSetAnnotationForCase(hcCaseId, true);
+                hcUnblockAllButtons();
+
+                const toggleBtn = document.getElementById('hc-toggle-btn');
+                if (toggleBtn) {
+                  toggleBtn.textContent = '✓ Checklist Completed';
+                  toggleBtn.classList.add('annotated');
+                }
+
+                const form = document.getElementById('hc-checklist-form');
+                if (form) {
+                  form.innerHTML = `
+                    <div class="hc-form-header">
+                      <span class="hc-form-title">ILAC Investigation Checklist</span>
+                    </div>
+                    <div class="hc-form-body" style="text-align: center; padding: 20px;">
+                      <div class="hc-annotated-badge">✓ Checklist Completed</div>
+                      <p style="font-size: 12px; color: #718096; margin-top: 8px;">Annotation saved & copied to clipboard.</p>
+                    </div>
+                  `;
+                }
+              } else {
+                hcSetAnnotationForCase(hcCaseId, true);
+                hcUnblockAllButtons();
+
+                const toggleBtn = document.getElementById('hc-toggle-btn');
+                if (toggleBtn) {
+                  toggleBtn.textContent = '✓ Checklist Completed';
+                  toggleBtn.classList.add('annotated');
+                }
+
+                if (statusEl) {
+                  statusEl.textContent = '✓ Copied to clipboard! (Annotate manually)';
+                  statusEl.className = 'hc-status-msg success';
+                }
+              }
+            }, 200);
+          } else {
+            hcSetAnnotationForCase(hcCaseId, true);
+            hcUnblockAllButtons();
+
+            const toggleBtn = document.getElementById('hc-toggle-btn');
+            if (toggleBtn) {
+              toggleBtn.textContent = '✓ Checklist Completed';
+              toggleBtn.classList.add('annotated');
+            }
+
+            if (statusEl) {
+              statusEl.textContent = '✓ Copied to clipboard! Annotate button not found.';
+              statusEl.className = 'hc-status-msg success';
+            }
+          }
+        }).catch(() => {
+          if (statusEl) {
+            statusEl.textContent = 'Failed to copy to clipboard';
+            statusEl.className = 'hc-status-msg error';
+          }
+        });
+      }
+
+      document.addEventListener('keydown', event => {
+        if (event.altKey && event.key.toLowerCase() === 'y' &&
+            !['INPUT','TEXTAREA'].includes(document.activeElement.tagName)) {
+          event.preventDefault();
+          const toggleBtn = document.getElementById('hc-toggle-btn');
+          if (toggleBtn) toggleBtn.click();
         }
       });
-    });
 
-    const MissingUnitsForm = document.createElement('div');
-    MissingUnitsForm.id = 'MissingUnitsForm';
-    Object.assign(MissingUnitsForm.style, {
-      display: 'none', position: 'fixed',
-      top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
-      background: 'white', padding: '30px',
-      borderRadius: '12px', boxShadow: '0 4px 15px rgba(0,0,0,0.2)',
-      zIndex: '1001', maxWidth: '400px', width: '100%',
-      flexDirection: 'column', alignItems: 'center'
-    });
-    MissingUnitsForm.innerHTML = `
-      <h2 style="text-align:center;margin-bottom:15px;">ILAC Missing Units Credit</h2>
-      <input type="text" placeholder="Shipment ID" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:5px;margin-bottom:10px;">
-      <div style="display:flex;gap:10px;width:100%;margin-bottom:10px;">
-        <input type="text" placeholder="FNSKU" style="flex:1;padding:8px;border:1px solid #ccc;border-radius:5px;">
-        <input type="text" placeholder="Qty" style="flex:1;padding:8px;border:1px solid #ccc;border-radius:5px;">
-      </div>
-      <input type="text" placeholder="RMS ID" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:5px;margin-bottom:10px;">
-      <button style="
-        background:#007BFF;color:white;padding:10px 20px;
-        border:none;border-radius:5px;cursor:pointer;">
-        Submit
-      </button>`;
-    document.body.appendChild(MissingUnitsForm);
+      setTimeout(() => {
+        hcInjectSidebar();
+        hcFindAndBlockButtons();
+      }, 2000);
 
-    document.addEventListener('click', e => {
-      if (HygieneCheckForm.style.display === 'block' &&
-          !HygieneCheckForm.contains(e.target) &&
-          e.target.id !== 'HygieneCheckLink') {
-        HygieneCheckForm.style.display = 'none';
+      const hcButtonObserver = new MutationObserver(() => {
+        if (!hcIsCaseAnnotated(hcCaseId)) {
+          hcFindAndBlockButtons();
+        }
+      });
+      hcButtonObserver.observe(document.body, { childList: true, subtree: true });
+    }
+
+    // =============================================
+    // BEACON 2.0 PAGE (Harmony)
+    // =============================================
+
+    if (/console\.harmony\.a2z\.com/.test(location.href)) {
+
+      let hcBeaconBlocked = false;
+      let hcBeaconCaseId = null;
+
+      function hcGetCaseIdFromBeacon() {
+        const urlMatch = location.href.match(/caseId=([^&]+)/);
+        if (urlMatch) return urlMatch[1];
+
+        const pageText = document.body.innerText || '';
+        const caseMatch = pageText.match(/Case\s*(?:ID)?:?\s*(\d{10,})/i);
+        if (caseMatch) return caseMatch[1];
+
+        return null;
       }
-      if (MissingUnitsForm.style.display === 'block' &&
-          !MissingUnitsForm.contains(e.target) &&
-          e.target.id !== 'MissingUnitsLink') {
-        MissingUnitsForm.style.display = 'none';
+
+      function hcUnblockBeaconButtons() {
+        document.querySelectorAll('.hc-blocked-btn').forEach(btn => {
+          btn.classList.remove('hc-blocked-btn');
+          btn.removeAttribute('data-hc-blocked');
+        });
+        document.querySelectorAll('.hc-block-prompt').forEach(p => p.remove());
+        hcBeaconBlocked = false;
       }
-    });
-  }
+
+      function hcBlockBeaconButtons() {
+        hcBeaconCaseId = hcGetCaseIdFromBeacon();
+
+        if (!hcBeaconCaseId) return;
+
+        if (hcIsCaseAnnotated(hcBeaconCaseId)) {
+          hcUnblockBeaconButtons();
+          return;
+        }
+
+        // Already blocked, don't re-process
+        if (hcBeaconBlocked && document.querySelector('.hc-blocked-btn')) return;
+
+        let foundBtn = null;
+
+        // Strategy 1: Find by exact text "Submit BLURB"
+        document.querySelectorAll('button, [role="button"]').forEach(btn => {
+          const text = (btn.textContent || '').trim();
+          if (text === 'Submit BLURB' || text === 'Submit Blurb' || text === 'submit blurb') {
+            if (!btn.classList.contains('hc-blocked-btn')) {
+              btn.classList.add('hc-blocked-btn');
+              btn.setAttribute('data-hc-blocked', 'true');
+              foundBtn = btn;
+              hcBeaconBlocked = true;
+            }
+          }
+        });
+
+        // Strategy 2: Check kat-button elements
+        if (!foundBtn) {
+          document.querySelectorAll('kat-button').forEach(katBtn => {
+            const label = (katBtn.getAttribute('label') || '').trim().toLowerCase();
+            const text = (katBtn.textContent || '').trim().toLowerCase();
+            if (label.includes('submit blurb') || text.includes('submit blurb')) {
+              if (!katBtn.classList.contains('hc-blocked-btn')) {
+                katBtn.classList.add('hc-blocked-btn');
+                katBtn.setAttribute('data-hc-blocked', 'true');
+                foundBtn = katBtn;
+                hcBeaconBlocked = true;
+              }
+              const inner = katBtn.querySelector('button');
+              if (inner && !inner.classList.contains('hc-blocked-btn')) {
+                inner.classList.add('hc-blocked-btn');
+                inner.setAttribute('data-hc-blocked', 'true');
+              }
+            }
+          });
+        }
+
+        // Add one prompt below the button
+        if (foundBtn && !document.querySelector('.hc-block-prompt')) {
+          const container = foundBtn.closest('div') || foundBtn.parentElement;
+          if (container) {
+            const prompt = document.createElement('div');
+            prompt.className = 'hc-block-prompt';
+            prompt.textContent = 'Complete the Hygiene Checks to proceed further';
+            // Try to place after the container, fallback to after the button itself
+            try {
+              container.insertAdjacentElement('afterend', prompt);
+            } catch (e) {
+              foundBtn.insertAdjacentElement('afterend', prompt);
+            }
+          }
+        }
+      }
+
+      const hcBeaconObserver = new MutationObserver(() => {
+        const caseId = hcGetCaseIdFromBeacon();
+        if (caseId) {
+          if (caseId !== hcBeaconCaseId) {
+            hcUnblockBeaconButtons();
+          }
+          hcBlockBeaconButtons();
+        }
+      });
+
+      setTimeout(() => {
+        hcBlockBeaconButtons();
+        hcBeaconObserver.observe(document.body, { childList: true, subtree: true });
+      }, 3000);
+    }
+
+  } // end of isFeatureEnabled('hygieneChecks')
+
+
 
   /////////////////////////////////
   // 2) RCAI Expand Findings     //
@@ -5697,13 +6175,29 @@ function ilacIsValidCaseToAttachReport(userId, caseId, caseHistory, caseAttachme
 
             await cmSleep(800);
 
-            // 2. Fill ASIN or FNSKU
+                        // 2. Fill ASIN or FNSKU
             const valueLabel = isAsinMode ? 'ASIN' : 'FNSKU';
-            let valueInput = cmFindInputByLabel(valueLabel);
+            let valueInput = null;
 
+            // Strategy 1: Find textarea or input by label text (e.g. "ASIN LIST" or "FNSKU LIST")
+            valueInput = cmFindInputByLabel(valueLabel + ' LIST') || cmFindInputByLabel(valueLabel);
+
+            // Strategy 2: Find textarea with matching placeholder
             if (!valueInput) {
-                const allInputs = document.querySelectorAll('input[type="text"], input:not([type])');
-                for (const inp of allInputs) {
+                const textareas = document.querySelectorAll('textarea');
+                for (const ta of textareas) {
+                    const placeholder = (ta.placeholder || '').toLowerCase();
+                    if (placeholder.includes(valueLabel.toLowerCase()) || placeholder.includes('per line')) {
+                        valueInput = ta;
+                        break;
+                    }
+                }
+            }
+
+            // Strategy 3: Find any input/textarea by id, name, or placeholder
+            if (!valueInput) {
+                const allFields = document.querySelectorAll('input[type="text"], input:not([type]), textarea');
+                for (const inp of allFields) {
                     const id = (inp.id || '').toLowerCase();
                     const name = (inp.name || '').toLowerCase();
                     const placeholder = (inp.placeholder || '').toLowerCase();
@@ -5718,12 +6212,22 @@ function ilacIsValidCaseToAttachReport(userId, caseId, caseHistory, caseAttachme
                 }
             }
 
+            // Strategy 4: First visible textarea in form
+            if (!valueInput) {
+                const visibleTextareas = Array.from(document.querySelectorAll('textarea')).filter(
+                    el => el.offsetParent !== null
+                );
+                if (visibleTextareas.length >= 1) valueInput = visibleTextareas[0];
+            }
+
+            // Strategy 5: First visible text input not marketplace
             if (!valueInput) {
                 const visibleInputs = Array.from(document.querySelectorAll('input[type="text"], input:not([type])')).filter(
                     el => el.offsetParent !== null && !el.id.toLowerCase().includes('marketplace')
                 );
                 if (visibleInputs.length >= 1) valueInput = visibleInputs[0];
             }
+
 
             if (valueInput) {
                 cmSetNativeValue(valueInput, params.value);
