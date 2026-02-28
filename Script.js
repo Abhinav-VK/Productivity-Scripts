@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     8.2.3
+// @version     8.2.4
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -924,13 +924,12 @@
       hcButtonObserver.observe(document.body, { childList: true, subtree: true });
     }
 
-    // =============================================
+        // =============================================
     // BEACON 2.0 PAGE (Harmony)
     // =============================================
 
     if (/console\.harmony\.a2z\.com/.test(location.href)) {
 
-      let hcBeaconBlocked = false;
       let hcBeaconCaseId = null;
 
       function hcGetCaseIdFromBeacon() {
@@ -950,51 +949,49 @@
           btn.removeAttribute('data-hc-blocked');
         });
         document.querySelectorAll('.hc-block-prompt').forEach(p => p.remove());
-        hcBeaconBlocked = false;
       }
 
       function hcBlockBeaconButtons() {
         hcBeaconCaseId = hcGetCaseIdFromBeacon();
-
         if (!hcBeaconCaseId) return;
 
+        // If annotated, always unblock and stop
         if (hcIsCaseAnnotated(hcBeaconCaseId)) {
           hcUnblockBeaconButtons();
           return;
         }
 
-        // Already blocked, don't re-process
-        if (hcBeaconBlocked && document.querySelector('.hc-blocked-btn')) return;
-
         let foundBtn = null;
 
-        // Strategy 1: Find by exact text "Submit BLURB"
+        // Find Submit BLURB button
         document.querySelectorAll('button, [role="button"]').forEach(btn => {
+          if (btn.classList.contains('hc-blocked-btn')) {
+            foundBtn = btn;
+            return;
+          }
           const text = (btn.textContent || '').trim();
-          if (text === 'Submit BLURB' || text === 'Submit Blurb' || text === 'submit blurb') {
-            if (!btn.classList.contains('hc-blocked-btn')) {
-              btn.classList.add('hc-blocked-btn');
-              btn.setAttribute('data-hc-blocked', 'true');
-              foundBtn = btn;
-              hcBeaconBlocked = true;
-            }
+          if (/^submit\s*blurb$/i.test(text)) {
+            btn.classList.add('hc-blocked-btn');
+            btn.setAttribute('data-hc-blocked', 'true');
+            foundBtn = btn;
           }
         });
 
-        // Strategy 2: Check kat-button elements
+        // Also check kat-button elements
         if (!foundBtn) {
           document.querySelectorAll('kat-button').forEach(katBtn => {
-            const label = (katBtn.getAttribute('label') || '').trim().toLowerCase();
-            const text = (katBtn.textContent || '').trim().toLowerCase();
-            if (label.includes('submit blurb') || text.includes('submit blurb')) {
-              if (!katBtn.classList.contains('hc-blocked-btn')) {
-                katBtn.classList.add('hc-blocked-btn');
-                katBtn.setAttribute('data-hc-blocked', 'true');
-                foundBtn = katBtn;
-                hcBeaconBlocked = true;
-              }
+            if (katBtn.classList.contains('hc-blocked-btn')) {
+              foundBtn = katBtn;
+              return;
+            }
+            const label = (katBtn.getAttribute('label') || '').trim();
+            const text = (katBtn.textContent || '').trim();
+            if (/^submit\s*blurb$/i.test(label) || /^submit\s*blurb$/i.test(text)) {
+              katBtn.classList.add('hc-blocked-btn');
+              katBtn.setAttribute('data-hc-blocked', 'true');
+              foundBtn = katBtn;
               const inner = katBtn.querySelector('button');
-              if (inner && !inner.classList.contains('hc-blocked-btn')) {
+              if (inner) {
                 inner.classList.add('hc-blocked-btn');
                 inner.setAttribute('data-hc-blocked', 'true');
               }
@@ -1002,24 +999,22 @@
           });
         }
 
-        // Add one prompt below the button
+        // Add one prompt
         if (foundBtn && !document.querySelector('.hc-block-prompt')) {
+          const prompt = document.createElement('div');
+          prompt.className = 'hc-block-prompt';
+          prompt.textContent = 'Complete the Hygiene Checks to proceed further';
           const container = foundBtn.closest('div') || foundBtn.parentElement;
           if (container) {
-            const prompt = document.createElement('div');
-            prompt.className = 'hc-block-prompt';
-            prompt.textContent = 'Complete the Hygiene Checks to proceed further';
-            // Try to place after the container, fallback to after the button itself
-            try {
-              container.insertAdjacentElement('afterend', prompt);
-            } catch (e) {
-              foundBtn.insertAdjacentElement('afterend', prompt);
-            }
+            container.insertAdjacentElement('afterend', prompt);
+          } else {
+            foundBtn.insertAdjacentElement('afterend', prompt);
           }
         }
       }
 
-            const hcBeaconObserver = new MutationObserver(() => {
+      // MutationObserver for dynamic content
+      const hcBeaconObserver = new MutationObserver(() => {
         const caseId = hcGetCaseIdFromBeacon();
         if (caseId) {
           if (caseId !== hcBeaconCaseId) {
@@ -1034,19 +1029,19 @@
         hcBeaconObserver.observe(document.body, { childList: true, subtree: true });
       }, 3000);
 
-      // Poll every second to check if case was annotated on Paragon
+      // Poll every 2 seconds to detect annotation from Paragon
       setInterval(() => {
         if (!hcBeaconCaseId) {
           hcBeaconCaseId = hcGetCaseIdFromBeacon();
         }
-        if (hcBeaconCaseId && hcBeaconBlocked && hcIsCaseAnnotated(hcBeaconCaseId)) {
-          hcUnblockBeaconButtons();
+        if (hcBeaconCaseId && hcIsCaseAnnotated(hcBeaconCaseId)) {
+          if (document.querySelector('.hc-blocked-btn') || document.querySelector('.hc-block-prompt')) {
+            console.log('[HygieneChecks] Beacon: Annotation detected, unblocking');
+            hcUnblockBeaconButtons();
+          }
         }
-      }, 1000);
+      }, 2000);
     }
-
-  } // end of isFeatureEnabled('hygieneChecks')
-
 
 
   /////////////////////////////////
