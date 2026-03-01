@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     8.2.7
+// @version     8.2.8
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -899,24 +899,56 @@
         hcSaveFormState();
 
         navigator.clipboard.writeText(output).then(() => {
-          const annotateKatBtn = document.querySelector('kat-button[label="Annotate"]');
+                    const annotateKatBtn = document.querySelector('kat-button[label="Annotate"]');
           if (annotateKatBtn) {
             annotateKatBtn.click();
-            setTimeout(() => {
-              let area = document.getElementById('katal-id-17')
-                      || document.querySelector('kat-textarea[label="Annotation"] textarea');
-              const saveBtn = document.querySelector('kat-button[label="Save annotation"] button');
-              if (area && saveBtn) {
-                const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
-                if (nativeSetter) {
-                  nativeSetter.call(area, output);
-                } else {
-                  area.value = output;
+
+            // Poll for textarea to appear instead of fixed timeout
+            let pollAttempts = 0;
+            const maxPollAttempts = 30; // 30 * 200ms = 6 seconds max wait
+
+            const pollForTextarea = setInterval(() => {
+              pollAttempts++;
+
+              let area = document.querySelector('kat-textarea[label="Annotation"] textarea')
+                      || document.getElementById('katal-id-17');
+
+              // Also try finding any visible textarea in the annotation section
+              if (!area) {
+                const allTextareas = document.querySelectorAll('textarea');
+                for (const ta of allTextareas) {
+                  if (ta.offsetParent !== null && ta.closest('[data-test="modal-parent"]')) {
+                    area = ta;
+                    break;
+                  }
                 }
-                area.dispatchEvent(new Event('input', { bubbles: true }));
-                area.dispatchEvent(new Event('change', { bubbles: true }));
-                area.dispatchEvent(new Event('blur', { bubbles: true }));
-                saveBtn.click();
+              }
+
+              const saveBtn = document.querySelector('kat-button[label="Save annotation"] button');
+
+              if (area && saveBtn) {
+                clearInterval(pollForTextarea);
+
+                // Small delay to ensure textarea is fully ready
+                setTimeout(() => {
+                  const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+                  if (nativeSetter) {
+                    nativeSetter.call(area, output);
+                  } else {
+                    area.value = output;
+                  }
+                  area.dispatchEvent(new Event('input', { bubbles: true }));
+                  area.dispatchEvent(new Event('change', { bubbles: true }));
+                  area.dispatchEvent(new Event('blur', { bubbles: true }));
+
+                  // Double-check value was set
+                  if (!area.value || area.value.length === 0) {
+                    area.focus();
+                    area.value = output;
+                    area.dispatchEvent(new Event('input', { bubbles: true }));
+                  }
+
+                  saveBtn.click();
 
                 hcSetAnnotationForCase(hcCaseId, true);
                 hcUnblockAllButtons();
@@ -966,7 +998,12 @@
                     }
                   });
                 }
-              } else {
+              }, 100);
+              }
+
+              if (pollAttempts >= maxPollAttempts) {
+                clearInterval(pollForTextarea);
+
                 hcSetAnnotationForCase(hcCaseId, true);
                 hcUnblockAllButtons();
 
@@ -977,11 +1014,12 @@
                 }
 
                 if (statusEl) {
-                  statusEl.textContent = '✓ Copied to clipboard! (Annotate manually)';
+                  statusEl.textContent = '✓ Copied to clipboard! (Annotate manually — textarea not found)';
                   statusEl.className = 'hc-status-msg success';
                 }
               }
             }, 200);
+
           } else {
             hcSetAnnotationForCase(hcCaseId, true);
             hcUnblockAllButtons();
