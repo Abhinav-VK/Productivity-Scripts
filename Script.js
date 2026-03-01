@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     8.2.6
+// @version     8.2.7
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -3182,7 +3182,7 @@ if (dropdownContainer) {
 panel.mappingObserver = mappingObserver;
     }
 
-    async function startMidSearch() {
+        async function startMidSearch() {
       if (isSearching) return;
 
       const input = document.getElementById('mid-search-input');
@@ -3201,7 +3201,6 @@ panel.mappingObserver = mappingObserver;
 
       clearAllHighlights();
 
-      // Determine the mapping mode at the start of search
       const isAsinMode = isAsinMappingMode();
       const mappingType = getMappingTypeDisplay();
       console.log(`[FNSKU MID Search] Starting search in ${mappingType} mode`);
@@ -3218,11 +3217,18 @@ panel.mappingObserver = mappingObserver;
           pageCount++;
           button.textContent = `Page ${pageCount}`;
 
+          // Check for "no results" message
+          const pageText = document.body.innerText.toLowerCase();
+          if (pageText.includes('this operation returned no results') ||
+              (pageCount > 1 && pageText.includes('no results'))) {
+            addResultLine(`Page ${pageCount}: "No results" detected — end of data`);
+            break;
+          }
+
           const pageResults = searchCurrentPage(searchMIDLower, pageCount);
 
           if (pageResults.length > 0) {
             if (isAsinMode) {
-              // ASIN Mappings mode: Check for matching FNSKU = ASIN
               const matchingResults = pageResults.filter(result => result.fnsku === result.asin);
 
               if (matchingResults.length > 0) {
@@ -3234,12 +3240,9 @@ panel.mappingObserver = mappingObserver;
                 found = true;
                 break;
               } else {
-                // Found MID but FNSKU != ASIN, show but continue searching
                 addResultLine(`Page ${pageCount}: Found ${pageResults.length} MID match(es) but FNSKU ≠ ASIN, continuing...`);
-                // Don't stop, keep searching for matching FNSKU/ASIN
               }
             } else {
-              // FNSKU Mappings mode: Just check for MID match
               searchResults = pageResults;
               pageResults.forEach(result => highlightRow(result.element, result.mid));
               scrollToElement(pageResults[0].element);
@@ -3252,26 +3255,32 @@ panel.mappingObserver = mappingObserver;
             addResultLine(`Page ${pageCount}: No matches`);
           }
 
-            const nextBtn = findNextButton();
-          if (!nextBtn) break;
-
-          // Capture current content before clicking next
-          const rowsBefore = document.querySelectorAll('table tr').length;
-          const firstRowText = document.querySelector('table tr:nth-child(2)')?.textContent?.trim() || '';
-
-          nextBtn.click();
-          const pageLoadSuccess = await waitForPageLoad(3000);
-
-          // Check if page actually changed after clicking next
-          const rowsAfter = document.querySelectorAll('table tr').length;
-          const firstRowTextAfter = document.querySelector('table tr:nth-child(2)')?.textContent?.trim() || '';
-
-          if (!pageLoadSuccess || (rowsBefore === rowsAfter && firstRowText === firstRowTextAfter)) {
-            addResultLine(`Page ${pageCount}: No more pages`);
+          const nextBtn = findNextButton();
+          if (!nextBtn) {
+            addResultLine('No next button found — end of pages');
             break;
           }
 
-          await new Promise(resolve => setTimeout(resolve, 300));
+          // Snapshot before clicking next
+          const snapshotBefore = getPageSnapshot();
+
+          console.log(`[FNSKU MID Search] Clicking: "${nextBtn.textContent.trim()}" (${nextBtn.tagName})`);
+          nextBtn.click();
+
+          // Wait for content to change
+          const changeResult = await waitForContentChange(snapshotBefore, 10000);
+
+          if (changeResult === 'no_results') {
+            addResultLine(`After page ${pageCount}: "No results" — end of data`);
+            break;
+          }
+
+          if (changeResult === false) {
+            addResultLine(`Page navigation stopped — content did not change after page ${pageCount}`);
+            break;
+          }
+
+          await new Promise(resolve => setTimeout(resolve, 500));
         }
 
         if (found) {
@@ -3445,80 +3454,100 @@ panel.mappingObserver = mappingObserver;
       statusDiv.className = `mid-status ${type}`;
     }
 
-    function findNextButton() {
-      const selectors = [
-        'button[aria-label*="next" i]:not([disabled])',
-        'button[title*="next" i]:not([disabled])',
-        'a[aria-label*="next" i]:not(.disabled)',
-        'a[title*="next" i]:not(.disabled)',
-        '.pagination button:not([disabled]):not(.current)',
-        '.pagination a:not(.disabled):not(.active)'
-      ];
 
-      for (const selector of selectors) {
-        const elements = document.querySelectorAll(selector);
-        for (const el of elements) {
-          if (el.offsetParent !== null && window.getComputedStyle(el).display !== 'none' && window.getComputedStyle(el).visibility !== 'hidden') {
+          function findNextButton() {
+      // Strategy 1: Find "Next >" button by text
+      const allClickable = document.querySelectorAll('button, a, [role="button"], span');
+      for (const el of allClickable) {
+        const text = (el.textContent || '').trim();
+        if (/^next\s*>?$/i.test(text) || /^>\s*$/i.test(text) || /^next\s*page$/i.test(text)) {
+          if (
+            !el.disabled &&
+            el.offsetParent !== null &&
+            window.getComputedStyle(el).display !== 'none' &&
+            window.getComputedStyle(el).visibility !== 'hidden' &&
+            !el.classList.contains('disabled')
+          ) {
             return el;
           }
         }
       }
 
-      const clickableElements = document.querySelectorAll('button, a, [role="button"], input[type="button"], input[type="submit"]');
-
-      for (const el of clickableElements) {
-        const text = (el.textContent || el.value || '').toLowerCase().trim();
-        const nextWords = ['next', 'next page', '→', '>', 'continue', 'more'];
-
-        if (nextWords.some(word => text.includes(word))) {
-          if (!text.includes('previous') && !text.includes('back') && !text.includes('prev')) {
-            if (!el.disabled && el.offsetParent !== null && window.getComputedStyle(el).display !== 'none' &&
-                window.getComputedStyle(el).visibility !== 'hidden' && !el.classList.contains('disabled')) {
-              return el;
-            }
+      // Strategy 2: Partial text match
+      for (const el of allClickable) {
+        const text = (el.textContent || '').trim().toLowerCase();
+        if (text.includes('next') && !text.includes('prev') && text.length < 30) {
+          if (
+            !el.disabled &&
+            el.offsetParent !== null &&
+            window.getComputedStyle(el).display !== 'none' &&
+            !el.classList.contains('disabled')
+          ) {
+            return el;
           }
         }
+      }
+
+      // Strategy 3: Standard selectors
+      const selectors = [
+        'button[aria-label*="next" i]:not([disabled])',
+        'a[aria-label*="next" i]:not(.disabled)',
+        '.pagination a:not(.disabled):not(.active)',
+        '[class*="pagination"] a:not(.disabled)'
+      ];
+
+      for (const selector of selectors) {
+        try {
+          const el = document.querySelector(selector);
+          if (el && el.offsetParent !== null) return el;
+        } catch (e) { }
       }
 
       return null;
     }
 
-    async function waitForPageLoad(timeout = 5000) {
-      return new Promise(resolve => {
-        let attempts = 0;
-        const maxAttempts = timeout / 100;
-        let lastRowCount = -1;
-        let stableCount = 0;
+        function getPageSnapshot() {
+      const rows = document.querySelectorAll('table tr');
+      return Array.from(rows).slice(1, 4).map(r => {
+        const cells = r.querySelectorAll('td');
+        return cells[0]?.textContent?.trim() || '';
+      }).join('|');
+    }
+
+    async function waitForContentChange(oldSnapshot, timeout = 10000) {
+      return new Promise((resolve) => {
+        const startTime = Date.now();
 
         const checkInterval = setInterval(() => {
-          attempts++;
+          const elapsed = Date.now() - startTime;
 
-          const currentRowCount = document.querySelectorAll('table tr').length;
-          const hasContent = currentRowCount > 1;
-          const noLoadingIndicator = !document.querySelector('.loading, .spinner, [aria-busy="true"], [aria-label*="loading" i]');
+          const rows = document.querySelectorAll('table tr');
+          if (rows.length >= 2) {
+            const currentSnapshot = Array.from(rows).slice(1, 4).map(r => {
+              const cells = r.querySelectorAll('td');
+              return cells[0]?.textContent?.trim() || '';
+            }).join('|');
 
-          if (currentRowCount === lastRowCount) {
-            stableCount++;
-          } else {
-            stableCount = 0;
+            if (currentSnapshot !== oldSnapshot && currentSnapshot.length > 0) {
+              clearInterval(checkInterval);
+              resolve(true);
+              return;
+            }
           }
 
-          const contentStabilized = stableCount >= 3;
-
-          if (hasContent && noLoadingIndicator && contentStabilized) {
+          const pageText = document.body.innerText.toLowerCase();
+          if (pageText.includes('no results') || pageText.includes('this operation returned no results')) {
             clearInterval(checkInterval);
-            resolve(true);
+            resolve('no_results');
             return;
           }
 
-          if (attempts >= maxAttempts) {
+          if (elapsed >= timeout) {
             clearInterval(checkInterval);
             resolve(false);
             return;
           }
-
-          lastRowCount = currentRowCount;
-        }, 100);
+        }, 200);
       });
     }
 
