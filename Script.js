@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     8.2.8
+// @version     8.2.9
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -5999,6 +5999,27 @@ function ilacIsValidCaseToAttachReport(userId, caseId, caseHistory, caseAttachme
                 border-bottom: none;
             }
 
+            .cm-search-final {
+                margin-top: 10px;
+                padding: 10px 12px;
+                border-radius: 6px;
+                font-size: 13px;
+                font-weight: 700;
+                text-align: center;
+            }
+
+            .cm-search-final.found {
+                background: #dcfce7;
+                color: #166534;
+                border: 1px solid #bbf7d0;
+            }
+
+            .cm-search-final.not-found {
+                background: #fef2f2;
+                color: #dc2626;
+                border: 1px solid #fecaca;
+            }
+
             .cm-highlight-row {
                 background-color: #ffff00 !important;
                 border: 3px solid #ff6b6b !important;
@@ -6315,12 +6336,20 @@ function ilacIsValidCaseToAttachReport(userId, caseId, caseHistory, caseAttachme
                 await cmSleep(500);
             }
 
+                        const resultsDiv = document.getElementById('cm-search-results');
+
             if (found) {
                 cmMappingUpdateStep(
                     'cm-step-search',
                     'done',
                     `MID Search: Found on page ${finalResults[0]?.page || '?'} (${finalResults.length} match${finalResults.length > 1 ? 'es' : ''})`
                 );
+                if (resultsDiv) {
+                    const banner = document.createElement('div');
+                    banner.className = 'cm-search-final found';
+                    banner.textContent = `✓ MID Found on Page ${finalResults[0]?.page || '?'} — ${finalResults.length} match${finalResults.length > 1 ? 'es' : ''}`;
+                    resultsDiv.appendChild(banner);
+                }
                 finalResults.forEach((result, idx) => {
                     cmAddSearchResult(result, idx, isAsinMode);
                 });
@@ -6328,8 +6357,14 @@ function ilacIsValidCaseToAttachReport(userId, caseId, caseHistory, caseAttachme
                 cmMappingUpdateStep(
                     'cm-step-search',
                     'fail',
-                    `MID Search: Not found across ${pageCount} pages`
+                    `MID Search: Not found`
                 );
+                if (resultsDiv) {
+                    const banner = document.createElement('div');
+                    banner.className = 'cm-search-final not-found';
+                    banner.textContent = `✗ MID Not Found across ${pageCount} page${pageCount > 1 ? 's' : ''}`;
+                    resultsDiv.appendChild(banner);
+                }
             }
 
             return { found, results: finalResults, pages: pageCount };
