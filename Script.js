@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     8.2.12
+// @version     8.3.0
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -273,44 +273,30 @@
 
     const HC_ANNOTATION_KEY = 'hygieneAnnotationMap';
     const HC_SECTIONS = [
-      {
-        title: 'RC',
-        questions: [
-          'Are SANTOS and Amazon Distribution checked in Seller Central?',
-          'Are all duplicate cases for the shipment thoroughly reviewed before proceeding to merge or transfer to ICON review?',
-          'Is the RC selected for all units, including overage and manual investigation?'
-        ]
-      },
-      {
-        title: 'PSE',
-        questions: [
-          'Are additional shipments addressed, if any?',
-          'Is the denial quantity mentioned in the final outbound verified as correct?',
-          'Is the RMS being approved for the correct units?',
-          'Are the Shipment ID and all ASINs confirmed as covered in the final outbound?',
-          'Are two RMS IDs mentioned in the blurb and attached to the Paragon case?',
-          'Is the pre approved edit added in pushback blurb for HI-ASP queue case?',
-          'Is the outbound being sent in seller\'s latest communication language?'
-        ]
-      },
-      {
-        title: 'Hygiene',
-        questions: [
-          'Is the File Storage SIM attached (with RCAI results), if applicable?',
-          'Are the Shipment ID, RMS ID, ILAC (twice) attached to the case?',
-          'Is the RMS tool Max:0 error annotated?',
-          'Are separate RMS IDs created for supported and unsupported FNSKUs?',
-          'Are Beacon open events annotated for overages?',
-          'Is the ILAC_stranded_inventory blurb included, if newly mapped units were recovered?',
-          'Is corresponding BOO mentioned instead of different seller\'s X00 in substitution decline blurb?',
-          'Is an Andon raised for Custom OB, if applicable?',
-          'Is the source of the shipped date annotated in POO section of Beacon?',
-          'Is the status of the created RMS confirmed?',
-          'Is the RMS approval reason selected based on which root cause has the majority of units being approved RMS for?',
-          'Is the reason code selected based on the majority of FNSKUs?'
-        ]
-      }
-    ];
+  {
+    title: 'RC',
+    questions: [
+      'Are SANTOS and Amazon Distribution checked in *Seller Central*?',
+      'Are all the units addressed in the *duplicate case* to merge or transfer?',
+      'Is the *RC* selected for all units, including overage and manual investigation?'
+    ]
+  },
+  {
+    title: 'PSE',
+    questions: [
+      'Is the resolution of *all ASIN quantities* mentioned in the final outbound?',
+      'Are *separate RMS IDs* created for supported and unsupported FNSKUs?',
+      'Are you using *RCBM* blurbs to address overages?'
+    ]
+  },
+  {
+    title: 'Hygiene',
+    questions: [
+      'Are *Beacon Open Events* annotated for overages?',
+      'Is the source of the *Shipped date* annotated in POO section of Beacon?'
+    ]
+  }
+];
 
     function hcGetCaseIdFromUrl() {
       const match = location.href.match(/caseId=([^&]+)/);
@@ -629,31 +615,33 @@
       }
 
       function hcBuildFormHTML(readOnly) {
-        let questionIndex = 0;
-        let html = '';
+          let questionIndex = 0;
+          let html = '';
 
-        HC_SECTIONS.forEach(section => {
-          html += `<div class="hc-section-title">${section.title}</div>`;
-          section.questions.forEach(q => {
-            questionIndex++;
-            const disabled = readOnly ? 'disabled' : '';
-            const labelClass = readOnly ? 'class="disabled"' : '';
-            html += `
-              <div class="hc-question">
-                <div class="hc-question-text">
-                  <span class="hc-question-number">${questionIndex})</span> ${q}
-                </div>
-                <div class="hc-options">
-                  <label ${labelClass}><input type="radio" name="hc-q${questionIndex}" value="Yes" ${disabled}> Yes</label>
-                  <label ${labelClass}><input type="radio" name="hc-q${questionIndex}" value="No" ${disabled}> No</label>
-                  <label ${labelClass}><input type="radio" name="hc-q${questionIndex}" value="NA" ${disabled}> NA</label>
-                </div>
-              </div>
-            `;
+          HC_SECTIONS.forEach(section => {
+              html += `<div class="hc-section-title">${section.title}</div>`;
+              section.questions.forEach(q => {
+                  questionIndex++;
+                  const disabled = readOnly ? 'disabled' : '';
+                  const labelClass = readOnly ? 'class="disabled"' : '';
+                  // Convert *text* to <strong>text</strong> for UI display
+                  const displayQuestion = q.replace(/\*([^*]+)\*/g, '<strong>$1</strong>');
+                  html += `
+        <div class="hc-question">
+          <div class="hc-question-text">
+            <span class="hc-question-number">${questionIndex})</span> ${displayQuestion}
+          </div>
+          <div class="hc-options">
+            <label ${labelClass}><input type="radio" name="hc-q${questionIndex}" value="Yes" ${disabled}> Yes</label>
+            <label ${labelClass}><input type="radio" name="hc-q${questionIndex}" value="No" ${disabled}> No</label>
+            <label ${labelClass}><input type="radio" name="hc-q${questionIndex}" value="NA" ${disabled}> NA</label>
+          </div>
+        </div>
+      `;
+              });
           });
-        });
 
-        return { html, totalQuestions: questionIndex };
+          return { html, totalQuestions: questionIndex };
       }
 
       function hcRemovePrompts() {
@@ -883,17 +871,19 @@
         }
 
         let output = 'ILAC Investigation Checklist:\n\n';
-        let questionIndex = 0;
+          let questionIndex = 0;
 
-        HC_SECTIONS.forEach(section => {
-          output += `[${section.title}]\n`;
-          section.questions.forEach(q => {
-            questionIndex++;
-            const sel = document.querySelector(`input[name="hc-q${questionIndex}"]:checked`);
-            output += `${questionIndex}) ${q} — ${sel.value}\n`;
+          HC_SECTIONS.forEach(section => {
+              output += `[${section.title}]\n`;
+              section.questions.forEach(q => {
+                  questionIndex++;
+                  const sel = document.querySelector(`input[name="hc-q${questionIndex}"]:checked`);
+                  // Strip *bold* markers for plain text annotation
+                  const plainQuestion = q.replace(/\*([^*]+)\*/g, '$1');
+                  output += `${questionIndex}) ${plainQuestion} — ${sel.value}\n`;
+              });
+              output += '\n';
           });
-          output += '\n';
-        });
 
         // Save answers before clearing form state
         hcSaveFormState();
