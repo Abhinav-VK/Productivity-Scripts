@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name              ASAP
-// @version           1.0.1
+// @version           1.0.2
 // @description       Combined: Auto Peek into seller accounts, Auto Populate MID & FRD, and AUX status enforcement
 // @author            Abhinav
 // @updateURL         https://raw.githubusercontent.com/Abhinav-VK/Productivity-Scripts/refs/heads/main/ASAP.js
