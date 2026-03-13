@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     8.3.3
+// @version     8.3.4
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -2291,7 +2291,7 @@ if (isFeatureEnabled('serenityExtractor') &&
       let uid = null;
 
       cells.forEach(c => {
-        const m = c.textContent.trim().match(/\b[A-Za-z0-9]{55,}\b/);
+        const m = c.textContent.trim().match(/\b[a-f0-9]{64}\b/);
         if (m) uid = m[0];
       });
 
@@ -2447,6 +2447,13 @@ if (isFeatureEnabled('serenityExtractor') &&
     }
   }
 
+        function debugExtraction() {
+  console.log('=== Serenity Extraction Debug ===');
+  console.log('Total unique IDs:', extractedResultsArray.length);
+  console.log('Total quantity:', extractedResultsArray.reduce((s, [,q]) => s + q, 0));
+  console.log('Current batch index:', batchIndex);
+  console.table(extractedResultsArray.map(([id, qty]) => ({ id: id.substring(0, 20) + '...', qty })));
+}
   function showStatus(message, type = 'info') {
     const statusDiv = document.getElementById('serenity-status');
     if (!statusDiv) return;
@@ -2594,7 +2601,13 @@ if (isFeatureEnabled('serenityExtractor') &&
   btn.style.right = '20px';
   btn.addEventListener('click', showSerenityPanel);
   document.body.appendChild(btn);
+
+
+
+
+
 }
+
 
 
 
