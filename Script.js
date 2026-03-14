@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     8.4.00
+// @version     8.4.01
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -286,7 +286,7 @@
     questions: [
       'Is the resolution of *all ASIN quantities* mentioned in the final outbound?',
       'Are *separate RMS IDs* created for supported and unsupported FNSKUs?',
-      'Are you using *RCBM* blurbs to address overages?',
+      'Are you using *RCBM* blurbs to address *overages*?',
       'Is the *ILAC_stranded_inventory* blurb included, if newly mapped units were recovered?',
       'Is the *ILAC_shipment_received* blurb included, if units are received after case creation?'
     ]
