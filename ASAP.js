@@ -1,6 +1,7 @@
 // ==UserScript==
 // @name              ASAP
-// @version           1.0.1
+// @namespace         http://tampermonkey.net/
+// @version           1.0.2
 // @description       Combined: Auto Peek into seller accounts, Auto Populate MID & FRD, and AUX status enforcement
 // @author            Abhinav
 // @updateURL         https://raw.githubusercontent.com/Abhinav-VK/Productivity-Scripts/refs/heads/main/ASAP.js
@@ -17,6 +18,13 @@
 // @match             https://moonraker-na.aka.amazon.com/serenity/open*
 // @match             https://fba-fnsku-commingling-console-na.aka.amazon.com/tool/fnsku-mappings-tool*
 // @match             https://console.harmony.a2z.com/beacon2/*
+// @connect           sentry.amazon.com
+// @connect           na.amzheimdall.com
+// @connect           paragon-na.amazon.com
+// @connect           paragon-eu.amazon.com
+// @connect           midway-auth.amazon.com
+// @connect           sellercentral.amazon.com
+// @connect           sim-ticketing-graphql-fleet.corp.amazon.com
 // @require           https://ajax.googleapis.com/ajax/libs/jquery/3.6.1/jquery.min.js
 // @require           https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.8/purify.min.js
 // @grant             GM_setValue
@@ -26,13 +34,6 @@
 // @grant             GM_addStyle
 // @grant             unsafeWindow
 // @grant             window.onurlchange
-// @connect           sentry.amazon.com
-// @connect           na.amzheimdall.com
-// @connect           paragon-na.amazon.com
-// @connect           paragon-eu.amazon.com
-// @connect           midway-auth.amazon.com
-// @connect           sellercentral.amazon.com
-// @connect           sim-ticketing-graphql-fleet.corp.amazon.com
 // @noframes
 // ==/UserScript==
 
