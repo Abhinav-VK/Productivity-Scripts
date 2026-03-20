@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     8.4.01
+// @version     8.4.02
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -6533,27 +6533,27 @@ function ilacIsValidCaseToAttachReport(userId, caseId, caseHistory, caseAttachme
 
             await cmSleep(400);
 
-            // 4. Set Include Internal Merchants = True (if available)
-            let internalCheckbox =
-                cmFindCheckboxByLabel('Include Internal') ||
-                cmFindCheckboxByLabel('includeInternal') ||
-                cmFindCheckboxByLabel('Internal Merchants');
+            // 4. Set Include Internal Merchants = False
+let internalCheckbox =
+    cmFindCheckboxByLabel('Include Internal') ||
+    cmFindCheckboxByLabel('includeInternal') ||
+    cmFindCheckboxByLabel('Internal Merchants');
 
-            if (internalCheckbox) {
-                cmSetCheckbox(internalCheckbox, true);
-                cmMappingUpdateStep('cm-step-internal', 'done');
-            } else {
-                const internalSelect =
-                    cmFindInputByLabel('Include Internal') ||
-                    cmFindInputByLabel('Internal Merchants');
-                if (internalSelect && internalSelect.tagName === 'SELECT') {
-                    cmSetSelectValue(internalSelect, 'true');
-                    cmMappingUpdateStep('cm-step-internal', 'done');
-                } else {
-                    cmMappingUpdateStep('cm-step-internal', 'done');
-                    console.log('[CheckMapping] ℹ Include Internal Merchants not found (may not exist)');
-                }
-            }
+if (internalCheckbox) {
+    cmSetCheckbox(internalCheckbox, false);
+    cmMappingUpdateStep('cm-step-internal', 'done');
+} else {
+    const internalSelect =
+        cmFindInputByLabel('Include Internal') ||
+        cmFindInputByLabel('Internal Merchants');
+    if (internalSelect && internalSelect.tagName === 'SELECT') {
+        cmSetSelectValue(internalSelect, 'false');
+        cmMappingUpdateStep('cm-step-internal', 'done');
+    } else {
+        cmMappingUpdateStep('cm-step-internal', 'done');
+        console.log('[CheckMapping] ℹ Include Internal Merchants not found (may not exist)');
+    }
+}
 
             await cmSleep(500);
 
