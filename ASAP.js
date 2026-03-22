@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name              ASAP
 // @namespace         http://tampermonkey.net/
-// @version           1.0.3
+// @version           1.0.4
 // @description       Combined: Auto Peek into seller accounts, Auto Populate MID & FRD, and AUX status enforcement
 // @author            Abhinav
 // @updateURL         https://raw.githubusercontent.com/Abhinav-VK/Productivity-Scripts/refs/heads/main/ASAP.js
@@ -236,6 +236,13 @@
 
                         setTimeout(() => clearInterval(checkAndClose), 30000);
 
+
+                    }
+                    return { focus() {}, close() {} };
+                };
+
+                button.click();
+                console.log('[Auto Peek] ✅ Button clicked.');
                         if (caseId) {
                             const currentPeeked = getPeeked();
                             currentPeeked.caseId = caseId;
@@ -243,12 +250,6 @@
                             GM_setValue("peeked", JSON.stringify(currentPeeked));
                             console.log('[Auto Peek] 💾 Saved peek data for case:', caseId);
                         }
-                    }
-                    return { focus() {}, close() {} };
-                };
-
-                button.click();
-                console.log('[Auto Peek] ✅ Button clicked.');
 
                 setTimeout(() => {
                     unsafeWindow.open = originalOpen;
