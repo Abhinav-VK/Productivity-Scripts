@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name              ASAP
 // @namespace         http://tampermonkey.net/
-// @version           1.0.7
+// @version           1.0.8
 // @description       Combined: Auto Peek into seller accounts, Auto Populate MID & FRD, and AUX status enforcement
 // @author            Abhinav
 // @updateURL         https://raw.githubusercontent.com/Abhinav-VK/Productivity-Scripts/refs/heads/main/ASAP.js
@@ -58,13 +58,13 @@
     };
 
     const PARAGON_ROUTES = {
-        www.amazon.com: "na",
-        www.amazon.ca: "na",
-        www.amazon.de: "eu",
-        "1": "na",
-        "4": "eu",
-        "7": "na",
-        "771770": "na"
+    "www.amazon.com": "na",
+    "www.amazon.ca": "na",
+    "www.amazon.de": "eu",
+    "1": "na",
+    "4": "eu",
+    "7": "na",
+    "771770": "na"
     };
 
     const US_FCS = ["ABE2","ABE3","ABE4","ABE8","ACY5","ATL1","ATL6","ATL7","ATL8","AVP1","AVP2","AVP6","AVP8","AZA1","BDL2","BDL3","BFI1","BFI3","BFI4","BFI5","BFIX","BNA2","BNA3","BNA5","BOS1","BOS5","BWI1","BWI2","BWI4","BWI5","CAE1","CAE3","CHA1","CHA2","CHS1","CLT3","CLT5","CMH1","CMH2","CVG1","CVG2","CVG3","CVG5","CVG7","CVG8","CVG9","DEN2","DET1","DET2","DFW5","DFW6","DFW7","DFW8","DFW9","DPH1","DTW5","EWR4","EWR5","EWR6","EWR7","EWR9","FTW1","FTW2","FTW3","FTW4","FTW6","GSP1","HOU1","HOU3","IND1","IND2","IND3","IND4","IND5","IND7","IVSA","IVSB","JAX3","JFK7","LAS2","LAS6","LAX9","LEX1","LEX2","LGA7","LGB4","LGB6","MCI5","MCI7","MCO5","MDT1","MDW2","MDW4","MDW6","MDW7","MDW9","MGE3","MIA5","MKC4","MKE1","MKE5","MSP1","MSP5","MSP9","OAK3","OAK4","OAK5","OAK6","OAK7","ONT2","ONT3","ONT4","ONT5","ONT6","ONT8","ONT9","PHL1","PHL4","PHL5","PHL6","PHL7","PHL9","PHX3","PHX5","PHX6","PHX7","PHX8","PIT5","RIC1","RIC2","RNO4","SAT1","SDF1","SDF2","SDF4","SDF6","SDF8","SDF9","SEA8","SJC7","SNA4","STL4","STL5","TEB3","TEB6","TPA1","TPA2","TUL1","TUS1","TUS2","XUSC","XUSD","XUSE","XUSN"];
