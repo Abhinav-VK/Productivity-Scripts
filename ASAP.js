@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name              ASAP
 // @namespace         http://tampermonkey.net/
-// @version           1.0.8
+// @version           1.0.9
 // @description       Combined: Auto Peek into seller accounts, Auto Populate MID & FRD, and AUX status enforcement
 // @author            Abhinav
 // @updateURL         https://raw.githubusercontent.com/Abhinav-VK/Productivity-Scripts/refs/heads/main/ASAP.js
@@ -58,13 +58,13 @@
     };
 
     const PARAGON_ROUTES = {
-    "www.amazon.com": "na",
-    "www.amazon.ca": "na",
-    "www.amazon.de": "eu",
-    "1": "na",
-    "4": "eu",
-    "7": "na",
-    "771770": "na"
+        "www.amazon.com": "na",
+        "www.amazon.ca": "na",
+        "www.amazon.de": "eu",
+        "1": "na",
+        "4": "eu",
+        "7": "na",
+        "771770": "na"
     };
 
     const US_FCS = ["ABE2","ABE3","ABE4","ABE8","ACY5","ATL1","ATL6","ATL7","ATL8","AVP1","AVP2","AVP6","AVP8","AZA1","BDL2","BDL3","BFI1","BFI3","BFI4","BFI5","BFIX","BNA2","BNA3","BNA5","BOS1","BOS5","BWI1","BWI2","BWI4","BWI5","CAE1","CAE3","CHA1","CHA2","CHS1","CLT3","CLT5","CMH1","CMH2","CVG1","CVG2","CVG3","CVG5","CVG7","CVG8","CVG9","DEN2","DET1","DET2","DFW5","DFW6","DFW7","DFW8","DFW9","DPH1","DTW5","EWR4","EWR5","EWR6","EWR7","EWR9","FTW1","FTW2","FTW3","FTW4","FTW6","GSP1","HOU1","HOU3","IND1","IND2","IND3","IND4","IND5","IND7","IVSA","IVSB","JAX3","JFK7","LAS2","LAS6","LAX9","LEX1","LEX2","LGA7","LGB4","LGB6","MCI5","MCI7","MCO5","MDT1","MDW2","MDW4","MDW6","MDW7","MDW9","MGE3","MIA5","MKC4","MKE1","MKE5","MSP1","MSP5","MSP9","OAK3","OAK4","OAK5","OAK6","OAK7","ONT2","ONT3","ONT4","ONT5","ONT6","ONT8","ONT9","PHL1","PHL4","PHL5","PHL6","PHL7","PHL9","PHX3","PHX5","PHX6","PHX7","PHX8","PIT5","RIC1","RIC2","RNO4","SAT1","SDF1","SDF2","SDF4","SDF6","SDF8","SDF9","SEA8","SJC7","SNA4","STL4","STL5","TEB3","TEB6","TPA1","TPA2","TUL1","TUS1","TUS2","XUSC","XUSD","XUSE","XUSN"];
@@ -81,6 +81,7 @@
     const REGION = document.URL.match(/na|eu/)?.[0] ?? "na";
 
     // ========================== Main ==========================
+
     $(document).ready(() => {
         if (document.URL.includes("sellercentral.amazon.com/fba/inbound-shipment/summary")) {
             return handleSellerCentral();
@@ -176,27 +177,30 @@
     // ========================== Handle Paragon (Peek) ==========================
 
     function handleParagonPeek() {
-        let clicked = false;
-
-        const caseId = new URLSearchParams(window.location.search).get("caseId");
-        const peeked = getPeeked();
-
-        console.log('[Auto Peek] 📋 Current case ID:', caseId);
-        console.log('[Auto Peek] 📦 Stored peek data:', JSON.stringify(peeked, null, 2));
-
-        if (peeked.ttl && peeked.caseId) {
-            const expired = peeked.ttl < Date.now();
-            const sameCase = peeked.caseId === caseId;
-            console.log(`[Auto Peek] ⏰ TTL: ${new Date(peeked.ttl).toLocaleTimeString()} | ${expired ? 'EXPIRED' : 'VALID'}`);
-            console.log(`[Auto Peek] 🔍 Same case: ${sameCase}`);
-
-            if (!expired && sameCase) {
-                console.log('[Auto Peek] ✅ Already peeked for this case. Skipping.');
-                return;
-            }
+        let pendingIntent;
+        try {
+            pendingIntent = JSON.parse(GM_getValue('peekThenOpen', '{}'));
+        } catch (e) {
+            pendingIntent = {};
         }
 
-        console.log('[Auto Peek] 🔍 Not peeked yet. Watching for View seller account button...');
+        if (!pendingIntent.summaryUrl || (Date.now() - pendingIntent.timestamp) > 60000) {
+            console.log('[Auto Peek] No pending summary intent. Skipping auto-peek.');
+            return;
+        }
+
+        const summaryUrl = pendingIntent.summaryUrl;
+        const caseIdFromIlac = pendingIntent.caseIdFromIlac;
+        const sellerId = pendingIntent.sellerId;
+        const marketplace = pendingIntent.marketplace;
+
+        console.log('[Auto Peek] 📦 Pending intent — summary:', summaryUrl);
+        console.log('[Auto Peek] 📦 caseIdFromIlac:', caseIdFromIlac, '| sellerId:', sellerId);
+
+        GM_setValue('peekThenOpen', '{}');
+
+        let clicked = false;
+        const currentCaseId = new URLSearchParams(window.location.search).get("caseId");
 
         function tryClick() {
             if (clicked) return;
@@ -212,50 +216,40 @@
 
             clicked = true;
             observer.disconnect();
-            console.log('[Auto Peek] 🎯 Button found. Clicking in 1.5s...');
+            console.log('[Auto Peek] 🎯 "View seller account" found. Clicking...');
 
             setTimeout(() => {
                 const originalOpen = unsafeWindow.open;
                 unsafeWindow.open = function (url, target, features) {
                     if (url) {
                         console.log('[Auto Peek] 🔗 Intercepted window.open:', url);
-                        const newTab = GM_openInTab(url, { active: false, insert: true });
-
-                        const checkAndClose = setInterval(() => {
-                            try {
-                                if (newTab.closed) {
-                                    clearInterval(checkAndClose);
-                                    console.log('[Auto Peek] Tab already closed.');
-                                    return;
-                                }
-                                newTab.close();
-                                clearInterval(checkAndClose);
-                                console.log('[Auto Peek] 🔒 Tab closed.');
-                            } catch (e) { }
-                        }, 3000);
-
-                        setTimeout(() => clearInterval(checkAndClose), 30000);
-
-
                     }
                     return { focus() {}, close() {} };
                 };
 
                 button.click();
-                console.log('[Auto Peek] ✅ Button clicked.');
-                        if (caseId) {
-                            const currentPeeked = getPeeked();
-                            currentPeeked.caseId = caseId;
-                            currentPeeked.ttl = Date.now() + (20 * 60 * 1000);
-                            GM_setValue("peeked", JSON.stringify(currentPeeked));
-                            console.log('[Auto Peek] 💾 Saved peek data for case:', caseId);
-                        }
+                console.log('[Auto Peek] ✅ Peek button clicked.');
+
+                const caseId = currentCaseId || caseIdFromIlac;
+                if (caseId) {
+                    GM_setValue("peeked", JSON.stringify({
+                        ttl: Date.now() + (20 * 60 * 1000),
+                        peekTimestamp: Date.now(),
+                        caseId: caseId,
+                        merchantIdLegacy: sellerId || '',
+                    }));
+                    console.log('[Auto Peek] 💾 Peek saved — case:', caseId, '| seller:', sellerId);
+                }
 
                 setTimeout(() => {
                     unsafeWindow.open = originalOpen;
                 }, 5000);
 
-                setTimeout(() => window.focus(), 1000);
+                setTimeout(() => {
+                    console.log('[Auto Peek] 🚀 Opening summary:', summaryUrl);
+                    GM_openInTab(summaryUrl, { active: true, insert: true });
+                }, 2000);
+
             }, 1500);
         }
 
@@ -264,44 +258,144 @@
 
         tryClick();
 
-        setTimeout(() => {
+        setTimeout(async () => {
+            if (!clicked && sellerId) {
+                console.log('[Auto Peek] ⚠️ Button not found on case', currentCaseId);
+                console.log('[Auto Peek] 🔍 Searching for another case for seller:', sellerId);
+
+                try {
+                    const token = await getToken();
+                    if (token) {
+                        const { caseId: foundCaseId } = await getCase(token, marketplace, sellerId);
+                        if (foundCaseId && foundCaseId !== currentCaseId) {
+                            console.log('[Auto Peek] 🔀 Found alternative case:', foundCaseId);
+
+                            GM_setValue('peekThenOpen', JSON.stringify({
+                                summaryUrl: summaryUrl,
+                                caseIdFromIlac: foundCaseId,
+                                sellerId: sellerId,
+                                marketplace: marketplace,
+                                timestamp: Date.now()
+                            }));
+
+                            const region = document.URL.match(/paragon-(na|eu)/)?.[1] || 'na';
+                            window.location.href = `https://paragon-${region}.amazon.com/hz/view-case?caseId=${foundCaseId}`;
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    console.log('[Auto Peek] ⚠️ Search failed:', e);
+                }
+            }
+
             if (!clicked) {
                 observer.disconnect();
-                console.log('[Auto Peek] ⏱️ Button not found within 60s.');
+                console.log('[Auto Peek] ⏱️ Button not found. Opening summary anyway...');
+                GM_openInTab(summaryUrl, { active: true, insert: true });
             }
-        }, 60000);
+        }, 15000);
     }
 
     // ========================== Handle ILAC ==========================
 
     function handleIlacReport() {
-        const loadPage = setInterval(async () => {
+        const loadPage = setInterval(() => {
             if ($('.ilac-root').length) {
                 clearInterval(loadPage);
-                const fc = $("td:contains(FC destination:):last").next().text().match(/[\w]+/)?.[0];
-                const marketplace = getMarketplaceFromFc(fc);
-                const token = $(":contains(csrf)")?.[2]?.text?.split("'")?.[3];
-                const sellerId = $("td:contains(Merchant Customer ID:):last").next().find('a').text();
-                let caseId = document.URL.match(/(?<=caseId=|caseID=)[\w]+/)?.[0];
-                let tenantId = document.URL.match(/(?<=tenantId=)[\w]+/)?.[0];
-                let customerId;
-                let status;
-
-                try {
-                    if (caseId && tenantId) {
-                        customerId = await getCustomerId(token, caseId, tenantId, sellerId);
-                        ({ status } = await getCase(token, marketplace, caseId));
-                    } else {
-                        ({ caseId, tenantId, status } = await getCase(token, marketplace, sellerId));
-                        customerId = await getCustomerId(token, caseId, tenantId, sellerId);
-                    }
-
-                    await peekNow(token, caseId, tenantId, sellerId, customerId, status, false);
-                } catch (e) {
-                    console.log('[Auto Peek] ILAC auto-peek failed:', e);
-                }
+                attachSummaryPeekHandlers();
             }
         }, 25);
+    }
+
+    function attachSummaryPeekHandlers() {
+        let summaryLinks = Array.from(
+            document.querySelectorAll('a[href*="sellercentral.amazon.com/fba/inbound-shipment/summary"]')
+        );
+
+        if (!summaryLinks.length) {
+            const xpathResult = document.evaluate(
+                '/html/body/div[4]/div/div/table[1]/tbody/tr/td[1]/table/tbody/tr[2]/td[3]/a[1]',
+                document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null
+            );
+            if (xpathResult.singleNodeValue) {
+                summaryLinks = [xpathResult.singleNodeValue];
+            }
+        }
+
+        if (!summaryLinks.length) {
+            console.log('[Auto Peek] ⚠️ No Summary link found on ILAC page.');
+            return;
+        }
+
+        summaryLinks.forEach(link => {
+            link.addEventListener('click', (e) => {
+                const targetUrl = link.href;
+                const currentSellerId = $("td:contains(Merchant Customer ID:):last").next().find('a').text().trim();
+
+                const peeked = getPeeked();
+                if (
+                    peeked.ttl &&
+                    peeked.ttl > Date.now() &&
+                    peeked.merchantIdLegacy &&
+                    peeked.merchantIdLegacy === currentSellerId
+                ) {
+                    console.log('[Auto Peek] ✅ Already peeked for seller', currentSellerId, '. Opening summary directly...');
+                    return;
+                }
+
+                if (peeked.ttl && peeked.ttl > Date.now() && peeked.merchantIdLegacy !== currentSellerId) {
+                    console.log('[Auto Peek] ⚠️ Peeked for different seller:', peeked.merchantIdLegacy, '| Current:', currentSellerId, '. Need to re-peek.');
+                }
+
+                e.preventDefault();
+                e.stopPropagation();
+
+                let caseId = document.URL.match(/(?<=caseId=|caseID=)[\w]+/)?.[0];
+                const fc = $("td:contains(FC destination:):last").next().text().match(/[\w]+/)?.[0];
+                const marketplace = getMarketplaceFromFc(fc);
+
+                if (!caseId && !currentSellerId) {
+                    console.log('[Auto Peek] ⚠️ No caseId or sellerId found. Opening summary without peek...');
+                    window.open(targetUrl, '_blank');
+                    return;
+                }
+
+                GM_setValue('peekThenOpen', JSON.stringify({
+                    summaryUrl: targetUrl,
+                    caseIdFromIlac: caseId || null,
+                    sellerId: currentSellerId || null,
+                    marketplace: marketplace || 'amazon.com',
+                    timestamp: Date.now()
+                }));
+
+                console.log('[Auto Peek] 📋 Stored summary intent:', targetUrl);
+                console.log('[Auto Peek] 📋 caseId:', caseId, '| sellerId:', currentSellerId);
+
+                const originalText = link.textContent;
+                const originalColor = link.style.color;
+                link.textContent = '⏳ Opening case to peek...';
+                link.style.color = '#ff9800';
+
+                const region = document.URL.match(/paragon-(na|eu)/)?.[1] || 'na';
+
+                if (caseId) {
+                    const caseUrl = `https://paragon-${region}.amazon.com/hz/view-case?caseId=${caseId}`;
+                    console.log('[Auto Peek] 🔀 Opening ILAC case:', caseUrl);
+                    window.open(caseUrl, '_blank');
+                } else {
+                    console.log('[Auto Peek] 🔀 No caseId in URL. Searching by sellerId...');
+                    const searchUrl = `https://paragon-${region}.amazon.com/hz/search?searchQuery=${currentSellerId}`;
+                    window.open(searchUrl, '_blank');
+                }
+
+                setTimeout(() => {
+                    link.textContent = originalText;
+                    link.style.color = originalColor;
+                }, 2000);
+            });
+
+            console.log('[Auto Peek] 🔗 Peek handler attached to Summary link:', link.href);
+        });
     }
 
     // ========================== Handle SIM ==========================
@@ -459,7 +553,26 @@
             method: "POST",
             url: `https://paragon-${region}.amazon.com/hz/api/search`,
             headers: { "Content-Type": "application/json;charset=UTF-8", "pgn-csrf-token": token },
-            data: JSON.stringify({ "query": `${searchText}`, "searchAllTenants": true, "contentTypes": [{ "contentType": "CASE", "pageSize": 100, "pageNum": 1, "sortField": "queue", "sortOrder": "desc", "filters": ["status:resolved", "status:pending amazon action", "status:pending merchant action", "status:merchant action completed", "status:work-in-progress", "status:reopened", "status:pending deployment"] }] })
+            data: JSON.stringify({
+                "query": `${searchText}`,
+                "searchAllTenants": true,
+                "contentTypes": [{
+                    "contentType": "CASE",
+                    "pageSize": 100,
+                    "pageNum": 1,
+                    "sortField": "queue",
+                    "sortOrder": "desc",
+                    "filters": [
+                        "status:resolved",
+                        "status:pending amazon action",
+                        "status:pending merchant action",
+                        "status:merchant action completed",
+                        "status:work-in-progress",
+                        "status:reopened",
+                        "status:pending deployment"
+                    ]
+                }]
+            })
         });
         try {
             let bestCase;
@@ -513,35 +626,54 @@
 
     async function checkCasePeekable(token, caseId, merchantId, caseStatus) {
         if (!caseStatus) {
+            console.log('[Auto Peek] ⏭️ No caseStatus — skipping peekable check');
             return true;
         }
-        const peekCheck = await xhrPromise({
-            method: "GET",
-            url: `https://paragon-${REGION}.amazon.com/hz/paragon/peeknow/ajax?caseId=${caseId}&merchantId=${merchantId}&caseStatus=${caseStatus}&marketplaceId=`,
-            headers: { "Content-Type": "application/x-www-form-urlencoded", "pgn-csrf-token": token },
-        });
-        const data = JSON.parse(peekCheck);
-        return (data.hasRight && data.validCaseStatus);
+        try {
+            const peekCheck = await xhrPromise({
+                method: "GET",
+                url: `https://paragon-${REGION}.amazon.com/hz/paragon/peeknow/ajax?caseId=${caseId}&merchantId=${merchantId}&caseStatus=${caseStatus}&marketplaceId=`,
+                headers: { "Content-Type": "application/x-www-form-urlencoded", "pgn-csrf-token": token },
+            });
+            const data = JSON.parse(peekCheck);
+            console.log('[Auto Peek] 🔍 Peekable check — hasRight:', data.hasRight, '| validCaseStatus:', data.validCaseStatus);
+            return (data.hasRight && data.validCaseStatus);
+        } catch (e) {
+            console.log('[Auto Peek] ⚠️ Peekable check error — proceeding anyway:', e);
+            return true;
+        }
     }
 
     async function peekNow(token, caseId, tenantId, merchantId, customerId, caseStatus = null, newTab = false, endpoint = "") {
         try {
-            if (!await checkCasePeekable(token, caseId, merchantId, caseStatus)) {
-                return false;
+            console.log('[Auto Peek] 🔎 peekNow params — caseId:', caseId, '| tenantId:', tenantId, '| merchantId:', merchantId, '| customerId:', customerId, '| status:', caseStatus);
+
+            const peekable = await checkCasePeekable(token, caseId, merchantId, caseStatus);
+            if (!peekable) {
+                console.log('[Auto Peek] ❌ checkCasePeekable returned false — trying to peek anyway...');
             }
+
             const res = await xhrPromise({
                 method: "POST",
                 url: `https://paragon-${REGION}.amazon.com/hz/paragon/peeknow/invokepeeknow`,
                 headers: { "Content-Type": "application/x-www-form-urlencoded", "pgn-csrf-token": token, "case-tenant-id": tenantId },
                 data: `customerId=${customerId}&merchantId=${merchantId}&caseId=${caseId}&caseTenantId=${tenantId}`,
             });
+
+            console.log('[Auto Peek] 📩 invokepeeknow raw response:', res);
+
             const data = JSON.parse(res).results.data;
+            console.log('[Auto Peek] 📦 invokepeeknow parsed — success:', data.success, '| duration:', data.duration, '| scURL:', data.scURL);
+
             if (!data.success) {
+                console.log('[Auto Peek] ❌ invokepeeknow returned success=false');
                 return false;
             }
+
             const landingPage = (!endpoint) ? data.scURL : data.scURL.replace('/home', endpoint);
             GM_setValue("peeked", JSON.stringify({
-                ttl: new Date().setMinutes(new Date().getMinutes() + data.duration),
+                ttl: Date.now() + (data.duration * 60 * 1000),
+                peekTimestamp: Date.now(),
                 caseId: caseId,
                 tenantId: tenantId,
                 customerId: customerId,
@@ -554,7 +686,7 @@
             }
             return true;
         } catch (e) {
-            console.log('[Auto Peek] peekNow failed:', e);
+            console.log('[Auto Peek] ❌ peekNow exception:', e);
             return false;
         }
     }
@@ -653,7 +785,7 @@
                 }
 
                 return true;
-            } catch {
+            } catch (e) {
                 return false;
             }
         }
@@ -749,7 +881,7 @@
     }
 
     // =============================================
-    // 3) SERENITY PAGE — Auto-populate FRD (with PO ID validation)
+    // 3) SERENITY PAGE — Auto-populate FRD
     // =============================================
 
     if (/moonraker-na\.aka\.amazon\.com\/serenity\/open/.test(location.href)) {
@@ -788,18 +920,45 @@
 
     if (/fba-fnsku-commingling-console-na\.aka\.amazon\.com\/tool\/fnsku-mappings-tool/.test(location.href)) {
 
+        let midPopulated = false;
+
         function tryPopulateMID() {
+            if (midPopulated) return;
+
             const input = document.getElementById('mid-search-input');
-            if (!input) return;
-            if (input.value) return;
+
+            if (!input) {
+                console.log('[AutoPopulate] MID input not found yet...');
+                return;
+            }
+
+            if (input.value) {
+                console.log('[AutoPopulate] MID input already has value:', input.value);
+                return;
+            }
 
             try {
                 const stored = JSON.parse(GM_getValue('autoPopulate_MID', '{}'));
                 const ageMs = Date.now() - (stored.timestamp || 0);
 
+                console.log('[AutoPopulate] Stored MID data:', stored);
+                console.log('[AutoPopulate] Age (ms):', ageMs);
+
                 if (stored.value && ageMs < THREE_HOURS) {
-                    input.value = stored.value;
-                    console.log('[AutoPopulate] MID auto-populated:', stored.value);
+                    const nativeSetter = Object.getOwnPropertyDescriptor(
+                        window.HTMLInputElement.prototype, 'value'
+                    ).set;
+                    nativeSetter.call(input, stored.value);
+
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                    input.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+                    input.focus();
+
+                    midPopulated = true;
+                    console.log('[AutoPopulate] ✅ MID auto-populated:', stored.value);
+                } else {
+                    console.log('[AutoPopulate] MID not available or expired');
                 }
             } catch (e) {
                 console.log('[AutoPopulate] MID error:', e);
@@ -808,6 +967,19 @@
 
         const midPopObserver = new MutationObserver(tryPopulateMID);
         midPopObserver.observe(document.body, { childList: true, subtree: true });
+
+        const midRetry = setInterval(() => {
+            tryPopulateMID();
+            if (midPopulated) {
+                clearInterval(midRetry);
+                midPopObserver.disconnect();
+            }
+        }, 1000);
+
+        setTimeout(() => {
+            clearInterval(midRetry);
+            midPopObserver.disconnect();
+        }, 60000);
     }
 
 })();
@@ -1057,7 +1229,6 @@
         function updateParagonButtons() {
             const { available } = checkIsAvailable();
 
-            // Review button
             document.querySelectorAll('kat-button[label="Review"]').forEach(btn => {
                 if (!available) {
                     btn.classList.add('aux-disabled-btn');
@@ -1069,7 +1240,6 @@
                 }
             });
 
-            // Transfer button
             document.querySelectorAll('kat-button[label="Transfer"]').forEach(btn => {
                 if (!available) {
                     btn.classList.add('aux-disabled-btn');
@@ -1081,12 +1251,11 @@
                 }
             });
 
-            // Send button
             document.querySelectorAll('kat-button[label="Send"]').forEach(btn => {
                 if (!available) {
                     btn.classList.add('aux-disabled-btn');
                     const inner = btn.querySelector('button');
-                    if (inner) inner.classList.add('aux-disabled-btn');
+                                        if (inner) inner.classList.add('aux-disabled-btn');
                     addShield(btn, showParagonAlert);
                 } else {
                     removeShield(btn);
