@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name              ASAP
 // @namespace         http://tampermonkey.net/
-// @version           1.1.00
+// @version           1.1.01
 // @description       Combined: Auto Peek into seller accounts, Auto Populate MID & FRD, and AUX status enforcement
 // @author            Abhinav
 // @updateURL         https://raw.githubusercontent.com/Abhinav-VK/Productivity-Scripts/refs/heads/main/ASAP.js
@@ -79,6 +79,7 @@
     }
 
     const REGION = document.URL.match(/na|eu/)?.[0] ?? "na";
+    const ONE_DAY = 24 * 60 * 60 * 1000;
 
     // ========================== Main ==========================
 
@@ -91,9 +92,6 @@
         }
         if (document.URL.match(/view-case|case\?/)) {
             return handleParagonPeek();
-        }
-        if (document.URL.includes("amazon.com/ilac/")) {
-            return handleIlacReport();
         }
     });
 
@@ -177,30 +175,37 @@
     // ========================== Handle Paragon (Peek) ==========================
 
     function handleParagonPeek() {
-        let pendingIntent;
-        try {
-            pendingIntent = JSON.parse(GM_getValue('peekThenOpen', '{}'));
-        } catch (e) {
-            pendingIntent = {};
-        }
-
-        if (!pendingIntent.summaryUrl || (Date.now() - pendingIntent.timestamp) > 60000) {
-            console.log('[Auto Peek] No pending summary intent. Skipping auto-peek.');
-            return;
-        }
-
-        const summaryUrl = pendingIntent.summaryUrl;
-        const caseIdFromIlac = pendingIntent.caseIdFromIlac;
-        const sellerId = pendingIntent.sellerId;
-        const marketplace = pendingIntent.marketplace;
-
-        console.log('[Auto Peek] 📦 Pending intent — summary:', summaryUrl);
-        console.log('[Auto Peek] 📦 caseIdFromIlac:', caseIdFromIlac, '| sellerId:', sellerId);
-
-        GM_setValue('peekThenOpen', '{}');
-
         let clicked = false;
-        const currentCaseId = new URLSearchParams(window.location.search).get("caseId");
+
+        // Extract seller ID from the page once loaded
+        function getSellerIdFromPage() {
+            // Try localStorage caseBaseData
+            try {
+                const baseData = JSON.parse(localStorage.getItem("caseBaseData") || "{}");
+                if (baseData.merchantCustomerId) return baseData.merchantCustomerId;
+            } catch (e) {}
+
+            // Try page content
+            const pageText = document.body?.innerText || '';
+            const sellerMatch = pageText.match(/Merchant(?:\s+Customer)?\s+ID[:\s]+(\d{10,15})/i);
+            if (sellerMatch) return sellerMatch[1];
+
+            return null;
+        }
+
+        function shouldSkipPeek(sellerId) {
+            if (!sellerId) return false;
+
+            const peeked = getPeeked();
+            if (
+                peeked.merchantIdLegacy === sellerId &&
+                peeked.peekTimestamp &&
+                (Date.now() - peeked.peekTimestamp) < ONE_DAY
+            ) {
+                return true;
+            }
+            return false;
+        }
 
         function tryClick() {
             if (clicked) return;
@@ -214,42 +219,52 @@
 
             if (!button) return;
 
+            // Get seller ID and check if already peeked today
+            const sellerId = getSellerIdFromPage();
+            console.log('[Auto Peek] 🔍 Seller ID from page:', sellerId);
+
+            if (shouldSkipPeek(sellerId)) {
+                clicked = true;
+                observer.disconnect();
+                console.log('[Auto Peek] ✅ Already peeked for seller', sellerId, 'today. Skipping.');
+                return;
+            }
+
             clicked = true;
             observer.disconnect();
-            console.log('[Auto Peek] 🎯 "View seller account" found. Clicking...');
+            console.log('[Auto Peek] 🎯 Button found. Peeking silently...');
 
             setTimeout(() => {
+                // Intercept window.open to prevent any tabs opening
                 const originalOpen = unsafeWindow.open;
                 unsafeWindow.open = function (url, target, features) {
                     if (url) {
-                        console.log('[Auto Peek] 🔗 Intercepted window.open:', url);
+                        console.log('[Auto Peek] 🔗 Intercepted window.open (blocked):', url);
                     }
                     return { focus() {}, close() {} };
                 };
 
                 button.click();
-                console.log('[Auto Peek] ✅ Peek button clicked.');
+                console.log('[Auto Peek] ✅ Peek button clicked silently.');
 
-                const caseId = currentCaseId || caseIdFromIlac;
-                if (caseId) {
-                    GM_setValue("peeked", JSON.stringify({
-                        ttl: Date.now() + (20 * 60 * 1000),
-                        peekTimestamp: Date.now(),
-                        caseId: caseId,
-                        merchantIdLegacy: sellerId || '',
-                    }));
-                    console.log('[Auto Peek] 💾 Peek saved — case:', caseId, '| seller:', sellerId);
-                }
+                // Save peek data
+                const caseId = new URLSearchParams(window.location.search).get("caseId");
+                GM_setValue("peeked", JSON.stringify({
+                    ttl: Date.now() + ONE_DAY,
+                    peekTimestamp: Date.now(),
+                    caseId: caseId || '',
+                    merchantIdLegacy: sellerId || '',
+                }));
+                console.log('[Auto Peek] 💾 Peek saved — case:', caseId, '| seller:', sellerId);
 
+                // Restore window.open after a delay
                 setTimeout(() => {
                     unsafeWindow.open = originalOpen;
+                    console.log('[Auto Peek] 🔓 window.open restored.');
                 }, 5000);
 
-                setTimeout(() => {
-                    console.log('[Auto Peek] 🚀 Opening summary:', summaryUrl);
-                    GM_openInTab(summaryUrl, { active: true, insert: true });
-                }, 2000);
-
+                // Keep focus on current page
+                setTimeout(() => window.focus(), 1000);
             }, 1500);
         }
 
@@ -258,144 +273,12 @@
 
         tryClick();
 
-        setTimeout(async () => {
-            if (!clicked && sellerId) {
-                console.log('[Auto Peek] ⚠️ Button not found on case', currentCaseId);
-                console.log('[Auto Peek] 🔍 Searching for another case for seller:', sellerId);
-
-                try {
-                    const token = await getToken();
-                    if (token) {
-                        const { caseId: foundCaseId } = await getCase(token, marketplace, sellerId);
-                        if (foundCaseId && foundCaseId !== currentCaseId) {
-                            console.log('[Auto Peek] 🔀 Found alternative case:', foundCaseId);
-
-                            GM_setValue('peekThenOpen', JSON.stringify({
-                                summaryUrl: summaryUrl,
-                                caseIdFromIlac: foundCaseId,
-                                sellerId: sellerId,
-                                marketplace: marketplace,
-                                timestamp: Date.now()
-                            }));
-
-                            const region = document.URL.match(/paragon-(na|eu)/)?.[1] || 'na';
-                            window.location.href = `https://paragon-${region}.amazon.com/hz/view-case?caseId=${foundCaseId}`;
-                            return;
-                        }
-                    }
-                } catch (e) {
-                    console.log('[Auto Peek] ⚠️ Search failed:', e);
-                }
-            }
-
+        setTimeout(() => {
             if (!clicked) {
                 observer.disconnect();
-                console.log('[Auto Peek] ⏱️ Button not found. Opening summary anyway...');
-                GM_openInTab(summaryUrl, { active: true, insert: true });
+                console.log('[Auto Peek] ⏱️ Button not found within 60s.');
             }
-        }, 15000);
-    }
-
-    // ========================== Handle ILAC ==========================
-
-    function handleIlacReport() {
-        const loadPage = setInterval(() => {
-            if ($('.ilac-root').length) {
-                clearInterval(loadPage);
-                attachSummaryPeekHandlers();
-            }
-        }, 25);
-    }
-
-    function attachSummaryPeekHandlers() {
-        let summaryLinks = Array.from(
-            document.querySelectorAll('a[href*="sellercentral.amazon.com/fba/inbound-shipment/summary"]')
-        );
-
-        if (!summaryLinks.length) {
-            const xpathResult = document.evaluate(
-                '/html/body/div[4]/div/div/table[1]/tbody/tr/td[1]/table/tbody/tr[2]/td[3]/a[1]',
-                document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null
-            );
-            if (xpathResult.singleNodeValue) {
-                summaryLinks = [xpathResult.singleNodeValue];
-            }
-        }
-
-        if (!summaryLinks.length) {
-            console.log('[Auto Peek] ⚠️ No Summary link found on ILAC page.');
-            return;
-        }
-
-        summaryLinks.forEach(link => {
-            link.addEventListener('click', (e) => {
-                const targetUrl = link.href;
-                const currentSellerId = $("td:contains(Merchant Customer ID:):last").next().find('a').text().trim();
-
-                const peeked = getPeeked();
-                if (
-                    peeked.ttl &&
-                    peeked.ttl > Date.now() &&
-                    peeked.merchantIdLegacy &&
-                    peeked.merchantIdLegacy === currentSellerId
-                ) {
-                    console.log('[Auto Peek] ✅ Already peeked for seller', currentSellerId, '. Opening summary directly...');
-                    return;
-                }
-
-                if (peeked.ttl && peeked.ttl > Date.now() && peeked.merchantIdLegacy !== currentSellerId) {
-                    console.log('[Auto Peek] ⚠️ Peeked for different seller:', peeked.merchantIdLegacy, '| Current:', currentSellerId, '. Need to re-peek.');
-                }
-
-                e.preventDefault();
-                e.stopPropagation();
-
-                let caseId = document.URL.match(/(?<=caseId=|caseID=)[\w]+/)?.[0];
-                const fc = $("td:contains(FC destination:):last").next().text().match(/[\w]+/)?.[0];
-                const marketplace = getMarketplaceFromFc(fc);
-
-                if (!caseId && !currentSellerId) {
-                    console.log('[Auto Peek] ⚠️ No caseId or sellerId found. Opening summary without peek...');
-                    window.open(targetUrl, '_blank');
-                    return;
-                }
-
-                GM_setValue('peekThenOpen', JSON.stringify({
-                    summaryUrl: targetUrl,
-                    caseIdFromIlac: caseId || null,
-                    sellerId: currentSellerId || null,
-                    marketplace: marketplace || 'amazon.com',
-                    timestamp: Date.now()
-                }));
-
-                console.log('[Auto Peek] 📋 Stored summary intent:', targetUrl);
-                console.log('[Auto Peek] 📋 caseId:', caseId, '| sellerId:', currentSellerId);
-
-                const originalText = link.textContent;
-                const originalColor = link.style.color;
-                link.textContent = '⏳ Opening case to peek...';
-                link.style.color = '#ff9800';
-
-                const region = document.URL.match(/paragon-(na|eu)/)?.[1] || 'na';
-
-                if (caseId) {
-                    const caseUrl = `https://paragon-${region}.amazon.com/hz/view-case?caseId=${caseId}`;
-                    console.log('[Auto Peek] 🔀 Opening ILAC case:', caseUrl);
-                    window.open(caseUrl, '_blank');
-                } else {
-                    console.log('[Auto Peek] 🔀 No caseId in URL. Searching by sellerId...');
-                    const searchUrl = `https://paragon-${region}.amazon.com/hz/search?searchQuery=${currentSellerId}`;
-                    window.open(searchUrl, '_blank');
-                }
-
-                setTimeout(() => {
-                    link.textContent = originalText;
-                    link.style.color = originalColor;
-                }, 2000);
-            });
-
-            console.log('[Auto Peek] 🔗 Peek handler attached to Summary link:', link.href);
-        });
+        }, 60000);
     }
 
     // ========================== Handle SIM ==========================
@@ -672,7 +555,7 @@
 
             const landingPage = (!endpoint) ? data.scURL : data.scURL.replace('/home', endpoint);
             GM_setValue("peeked", JSON.stringify({
-                ttl: Date.now() + (data.duration * 60 * 1000),
+                ttl: Date.now() + ONE_DAY,
                 peekTimestamp: Date.now(),
                 caseId: caseId,
                 tenantId: tenantId,
@@ -709,7 +592,6 @@
     }
 
 })();
-
 
 // ############################################################
 // #                                                          #
