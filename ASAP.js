@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name              ASAP
 // @namespace         http://tampermonkey.net/
-// @version           1.1.01
+// @version           1.1.02
 // @description       Combined: Auto Peek into seller accounts, Auto Populate MID & FRD, and AUX status enforcement
 // @author            Abhinav
 // @updateURL         https://raw.githubusercontent.com/Abhinav-VK/Productivity-Scripts/refs/heads/main/ASAP.js
@@ -97,30 +97,57 @@
 
     // ========================== Handle Seller Central ==========================
 
-    function handleSellerCentral() {
-        const currentUrl = document.URL;
-        const lastAttempt = JSON.parse(GM_getValue('peekAttempt', '{}'));
+function handleSellerCentral() {
+    const currentUrl = document.URL;
+    const lastAttempt = JSON.parse(GM_getValue('peekAttempt', '{}'));
 
-        if (lastAttempt.url === currentUrl && lastAttempt.time > Date.now() - 60000) {
-            console.log('[Auto Peek] Already attempted peek for this page. Skipping.');
-            return;
-        }
-
-        const check404 = setInterval(() => {
-            const pageText = document.body?.innerText || '';
-            if (pageText.includes('Shipment does not exist') || pageText.includes('404')) {
-                clearInterval(check404);
-                clearTimeout(safetyTimeout);
-                console.log('[Auto Peek] 404 detected on SellerCentral. Attempting to peek...');
-                autoPeekAndRefresh(currentUrl);
-            }
-        }, 500);
-
-        const safetyTimeout = setTimeout(() => {
-            clearInterval(check404);
-            console.log('[Auto Peek] No 404 detected. Page loaded normally.');
-        }, 15000);
+    // ✅ Stop infinite loop: if already attempted this exact URL within 60s, stop completely
+    if (lastAttempt.url === currentUrl && lastAttempt.time > Date.now() - 60000) {
+        console.log('[Auto Peek] Already attempted peek for this page. Skipping.');
+        return;
     }
+
+    // ✅ Track refresh count to prevent infinite loops
+    const refreshKey = 'peekRefreshCount_' + currentUrl.replace(/[^a-zA-Z0-9]/g, '').slice(-30);
+    const refreshCount = parseInt(GM_getValue(refreshKey, '0'));
+
+    if (refreshCount >= 2) {
+        console.log('[Auto Peek] Max refresh attempts reached. Stopping.');
+        GM_setValue(refreshKey, '0'); // Reset for next time
+        return;
+    }
+
+    const check404 = setInterval(() => {
+        const pageText = document.body?.innerText || '';
+        if (pageText.includes('Shipment does not exist') || pageText.includes('404')) {
+            clearInterval(check404);
+            clearTimeout(safetyTimeout);
+            console.log('[Auto Peek] 404 detected on SellerCentral.');
+
+            // Check if a fresh peek happened recently (within last 30 seconds)
+            const peeked = getPeeked();
+            const freshPeek = peeked.peekTimestamp && (Date.now() - peeked.peekTimestamp) < 30000;
+
+            if (freshPeek) {
+                // ✅ Peek just happened — wait a bit for cookies to propagate, then refresh once
+                console.log('[Auto Peek] Fresh peek detected. Waiting for cookies, then refreshing...');
+                GM_setValue(refreshKey, String(refreshCount + 1));
+                setTimeout(() => location.reload(), 3000);
+            } else {
+                console.log('[Auto Peek] No recent peek. Recording attempt.');
+                GM_setValue('peekAttempt', JSON.stringify({ url: currentUrl, time: Date.now() }));
+                // Don't auto-refresh — user needs to peek from Paragon first
+            }
+        }
+    }, 500);
+
+    const safetyTimeout = setTimeout(() => {
+        clearInterval(check404);
+        // ✅ Reset refresh count on successful load
+        GM_setValue(refreshKey, '0');
+        console.log('[Auto Peek] No 404 detected. Page loaded normally.');
+    }, 15000);
+}
 
     async function autoPeekAndRefresh(currentUrl) {
         GM_setValue('peekAttempt', JSON.stringify({ url: currentUrl, time: Date.now() }));
@@ -174,112 +201,142 @@
 
     // ========================== Handle Paragon (Peek) ==========================
 
-    function handleParagonPeek() {
-        let clicked = false;
+function handleParagonPeek() {
+    let clicked = false;
 
-        // Extract seller ID from the page once loaded
-        function getSellerIdFromPage() {
-            // Try localStorage caseBaseData
-            try {
-                const baseData = JSON.parse(localStorage.getItem("caseBaseData") || "{}");
-                if (baseData.merchantCustomerId) return baseData.merchantCustomerId;
-            } catch (e) {}
+    function getSellerIdFromPage() {
+        try {
+            const baseData = JSON.parse(localStorage.getItem("caseBaseData") || "{}");
+            if (baseData.merchantCustomerId) return baseData.merchantCustomerId;
+        } catch (e) {}
 
-            // Try page content
-            const pageText = document.body?.innerText || '';
-            const sellerMatch = pageText.match(/Merchant(?:\s+Customer)?\s+ID[:\s]+(\d{10,15})/i);
-            if (sellerMatch) return sellerMatch[1];
+        const pageText = document.body?.innerText || '';
+        const mcidMatch = pageText.match(/Merchant\s+Customer\s+ID[:\s]+(\d{10,15})/i);
+        if (mcidMatch) return mcidMatch[1];
+        const sidMatch = pageText.match(/(?:Seller|Merchant)\s+ID[:\s]+(\d{10,15})/i);
+        if (sidMatch) return sidMatch[1];
 
-            return null;
+        return null;
+    }
+
+    function shouldSkipPeek(sellerId) {
+        if (!sellerId) return false;
+        const peeked = getPeeked();
+        if (
+            peeked.merchantIdLegacy === sellerId &&
+            peeked.peekTimestamp &&
+            (Date.now() - peeked.peekTimestamp) < ONE_DAY
+        ) {
+            return true;
         }
+        return false;
+    }
 
-        function shouldSkipPeek(sellerId) {
-            if (!sellerId) return false;
+    function tryClick() {
+        if (clicked) return;
 
-            const peeked = getPeeked();
-            if (
-                peeked.merchantIdLegacy === sellerId &&
-                peeked.peekTimestamp &&
-                (Date.now() - peeked.peekTimestamp) < ONE_DAY
-            ) {
-                return true;
-            }
-            return false;
-        }
+        const katButton = document.querySelector('kat-button[label="View seller account"]');
+        if (!katButton) return;
 
-        function tryClick() {
-            if (clicked) return;
+        const button =
+            katButton.shadowRoot?.querySelector('button') ||
+            katButton.querySelector('button');
 
-            const katButton = document.querySelector('kat-button[label="View seller account"]');
-            if (!katButton) return;
+        if (!button) return;
 
-            const button =
-                katButton.shadowRoot?.querySelector('button') ||
-                katButton.querySelector('button');
+        const sellerId = getSellerIdFromPage();
+        console.log('[Auto Peek] 🔍 Seller ID from page:', sellerId);
 
-            if (!button) return;
-
-            // Get seller ID and check if already peeked today
-            const sellerId = getSellerIdFromPage();
-            console.log('[Auto Peek] 🔍 Seller ID from page:', sellerId);
-
-            if (shouldSkipPeek(sellerId)) {
-                clicked = true;
-                observer.disconnect();
-                console.log('[Auto Peek] ✅ Already peeked for seller', sellerId, 'today. Skipping.');
-                return;
-            }
-
+        if (shouldSkipPeek(sellerId)) {
             clicked = true;
             observer.disconnect();
-            console.log('[Auto Peek] 🎯 Button found. Peeking silently...');
+            console.log('[Auto Peek] ✅ Already peeked for seller', sellerId, 'today. Skipping.');
+            return;
+        }
 
-            setTimeout(() => {
-                // Intercept window.open to prevent any tabs opening
-                const originalOpen = unsafeWindow.open;
-                unsafeWindow.open = function (url, target, features) {
-                    if (url) {
-                        console.log('[Auto Peek] 🔗 Intercepted window.open (blocked):', url);
+        clicked = true;
+        observer.disconnect();
+        console.log('[Auto Peek] 🎯 Button found. Peeking silently...');
+
+        setTimeout(() => {
+            const originalOpen = unsafeWindow.open;
+            let interceptedSellerId = null;
+
+            unsafeWindow.open = function (url, target, features) {
+                if (url) {
+                    console.log('[Auto Peek] 🔗 Intercepted SC URL:', url);
+
+                    // Extract seller ID from URL
+                    const mcidMatch = url.match(/mons_sel_mcid=amzn1\.merchant\.o\.([A-Z0-9]+)/);
+                    if (mcidMatch) {
+                        interceptedSellerId = mcidMatch[1];
+                        console.log('[Auto Peek] 🆔 Extracted seller ID:', interceptedSellerId);
                     }
-                    return { focus() {}, close() {} };
-                };
 
-                button.click();
-                console.log('[Auto Peek] ✅ Peek button clicked silently.');
+                    // ✅ Open SC URL in background to establish session cookies
+                    console.log('[Auto Peek] 🌐 Opening SC in background to set cookies...');
+                    const scTab = GM_openInTab(url, { active: false, insert: true });
 
-                // Save peek data
+                    // Close the SC tab after cookies are set (give it 5 seconds)
+                    setTimeout(() => {
+                        try {
+                            if (!scTab.closed) {
+                                scTab.close();
+                                console.log('[Auto Peek] 🔒 SC background tab closed.');
+                            }
+                        } catch (e) {
+                            console.log('[Auto Peek] Could not close SC tab:', e);
+                        }
+                    }, 5000);
+                }
+                return { focus() {}, close() {} };
+            };
+
+            button.click();
+            console.log('[Auto Peek] ✅ Peek button clicked.');
+
+            // Save peek data after short delay to capture intercepted URL
+            setTimeout(() => {
                 const caseId = new URLSearchParams(window.location.search).get("caseId");
+                const finalSellerId = sellerId || interceptedSellerId;
+
                 GM_setValue("peeked", JSON.stringify({
                     ttl: Date.now() + ONE_DAY,
                     peekTimestamp: Date.now(),
                     caseId: caseId || '',
-                    merchantIdLegacy: sellerId || '',
+                    merchantIdLegacy: finalSellerId || '',
                 }));
-                console.log('[Auto Peek] 💾 Peek saved — case:', caseId, '| seller:', sellerId);
 
-                // Restore window.open after a delay
-                setTimeout(() => {
-                    unsafeWindow.open = originalOpen;
-                    console.log('[Auto Peek] 🔓 window.open restored.');
-                }, 5000);
+                // Clear stale peekAttempt so SC 404 handler can work fresh
+                GM_setValue('peekAttempt', '{}');
 
-                // Keep focus on current page
-                setTimeout(() => window.focus(), 1000);
-            }, 1500);
-        }
+                console.log('[Auto Peek] 💾 Peek saved — case:', caseId, '| seller:', finalSellerId);
+            }, 1000);
 
-        const observer = new MutationObserver(tryClick);
-        observer.observe(document.body, { childList: true, subtree: true });
+            // Restore window.open
+            setTimeout(() => {
+                unsafeWindow.open = originalOpen;
+                console.log('[Auto Peek] 🔓 window.open restored.');
+            }, 5000);
 
-        tryClick();
+            // Keep focus on current page
+            setTimeout(() => window.focus(), 1500);
 
-        setTimeout(() => {
-            if (!clicked) {
-                observer.disconnect();
-                console.log('[Auto Peek] ⏱️ Button not found within 60s.');
-            }
-        }, 60000);
+        }, 1500);
     }
+
+    const observer = new MutationObserver(tryClick);
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    tryClick();
+
+    setTimeout(() => {
+        if (!clicked) {
+            observer.disconnect();
+            console.log('[Auto Peek] ⏱️ Button not found within 60s.');
+        }
+    }, 60000);
+}
 
     // ========================== Handle SIM ==========================
 
