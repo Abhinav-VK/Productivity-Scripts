@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name              ASAP
 // @namespace         http://tampermonkey.net/
-// @version           1.1.02
+// @version           1.1.03
 // @description       Combined: Auto Peek into seller accounts, Auto Populate MID & FRD, and AUX status enforcement
 // @author            Abhinav
 // @updateURL         https://raw.githubusercontent.com/Abhinav-VK/Productivity-Scripts/refs/heads/main/ASAP.js
@@ -204,6 +204,113 @@ function handleSellerCentral() {
 function handleParagonPeek() {
     let clicked = false;
 
+    function getCurrentUser() {
+        try {
+            const userDetails = unsafeWindow?.userDetails || window?.userDetails;
+            if (userDetails?.agentLogin) return userDetails.agentLogin;
+        } catch (e) {}
+        return null;
+    }
+
+    function getCaseOwner() {
+        // Method 1: From deprecated_getViewCaseData
+        try {
+            const caseData = (unsafeWindow?.deprecated_getViewCaseData || window?.deprecated_getViewCaseData)?.();
+            if (caseData?.caseDetails?.owner) {
+                console.log('[Auto Peek] Owner from caseDetails:', caseData.caseDetails.owner);
+                return caseData.caseDetails.owner;
+            }
+        } catch (e) {}
+
+        // Method 2: From DOM
+        const rows = document.querySelectorAll('kat-table-body kat-table-row');
+        for (const row of rows) {
+            const cells = row.querySelectorAll('kat-table-cell');
+            if (cells.length >= 2) {
+                const label = cells[0]?.textContent?.trim();
+                if (label === 'Owner' || label === 'Case Owner') {
+                    const owner = cells[1]?.textContent?.trim();
+                    if (owner && owner.length > 0 && owner.length < 30) {
+                        console.log('[Auto Peek] Owner from DOM:', owner);
+                        return owner;
+                    }
+                }
+            }
+        }
+
+        // Method 3: Search all table cells
+        const allCells = document.querySelectorAll('kat-table-cell, td, th');
+        for (let i = 0; i < allCells.length - 1; i++) {
+            const text = allCells[i].textContent.trim();
+            if (text === 'Owner' || text === 'Case Owner') {
+                const nextCell = allCells[i + 1];
+                const owner = nextCell?.textContent?.trim();
+                if (owner && owner.length > 0 && owner.length < 30 && /^[a-z0-9_-]+$/i.test(owner)) {
+                    console.log('[Auto Peek] Owner from cells:', owner);
+                    return owner;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    function getCaseStatus() {
+        // Method 1: From deprecated_getViewCaseData
+        try {
+            const caseData = (unsafeWindow?.deprecated_getViewCaseData || window?.deprecated_getViewCaseData)?.();
+            if (caseData?.caseDetails?.status) {
+                console.log('[Auto Peek] Status from caseDetails:', caseData.caseDetails.status);
+                return caseData.caseDetails.status;
+            }
+        } catch (e) {}
+
+        // Method 2: From DOM
+        const rows = document.querySelectorAll('kat-table-body kat-table-row');
+        for (const row of rows) {
+            const cells = row.querySelectorAll('kat-table-cell');
+            if (cells.length >= 2) {
+                const label = cells[0]?.textContent?.trim();
+                if (label === 'Status' || label === 'Case Status') {
+                    const status = cells[1]?.textContent?.trim();
+                    if (status && status.length > 0) {
+                        console.log('[Auto Peek] Status from DOM:', status);
+                        return status;
+                    }
+                }
+            }
+        }
+
+        // Method 3: Search all table cells
+        const allCells = document.querySelectorAll('kat-table-cell, td, th');
+        for (let i = 0; i < allCells.length - 1; i++) {
+            const text = allCells[i].textContent.trim();
+            if (text === 'Status' || text === 'Case Status') {
+                const nextCell = allCells[i + 1];
+                const status = nextCell?.textContent?.trim();
+                if (status && status.length > 0 && status.length < 50) {
+                    console.log('[Auto Peek] Status from cells:', status);
+                    return status;
+                }
+            }
+        }
+
+        // Method 4: Status badge elements
+        const statusElements = document.querySelectorAll('[class*="status"], [class*="Status"], [data-status]');
+        for (const el of statusElements) {
+            const text = el.textContent?.trim();
+            if (text && (text.toLowerCase().includes('work in progress') ||
+                         text.toLowerCase().includes('pending') ||
+                         text.toLowerCase().includes('resolved') ||
+                         text.toLowerCase().includes('closed'))) {
+                console.log('[Auto Peek] Status from badge:', text);
+                return text;
+            }
+        }
+
+        return null;
+    }
+
     function getSellerIdFromPage() {
         try {
             const baseData = JSON.parse(localStorage.getItem("caseBaseData") || "{}");
@@ -232,110 +339,167 @@ function handleParagonPeek() {
         return false;
     }
 
-    function tryClick() {
-        if (clicked) return;
+    // Wait for page data to be available before attempting peek
+    let dataCheckCount = 0;
+    const dataCheckMax = 120; // 60 seconds
 
-        const katButton = document.querySelector('kat-button[label="View seller account"]');
-        if (!katButton) return;
+    const waitForData = setInterval(() => {
+        dataCheckCount++;
 
-        const button =
-            katButton.shadowRoot?.querySelector('button') ||
-            katButton.querySelector('button');
-
-        if (!button) return;
-
-        const sellerId = getSellerIdFromPage();
-        console.log('[Auto Peek] 🔍 Seller ID from page:', sellerId);
-
-        if (shouldSkipPeek(sellerId)) {
-            clicked = true;
-            observer.disconnect();
-            console.log('[Auto Peek] ✅ Already peeked for seller', sellerId, 'today. Skipping.');
+        if (dataCheckCount >= dataCheckMax) {
+            clearInterval(waitForData);
+            console.log('[Auto Peek] ⏱️ Timed out waiting for page data.');
             return;
         }
 
-        clicked = true;
-        observer.disconnect();
-        console.log('[Auto Peek] 🎯 Button found. Peeking silently...');
+        const currentUser = getCurrentUser();
+        const caseOwner = getCaseOwner();
+        const caseStatus = getCaseStatus();
+
+        // Wait until we have at least user and owner
+        if (!currentUser || !caseOwner) {
+            if (dataCheckCount % 20 === 0) {
+                console.log(`[Auto Peek] ⏳ Waiting for page data... (attempt ${dataCheckCount}) user:`, currentUser, 'owner:', caseOwner);
+            }
+            return;
+        }
+
+        clearInterval(waitForData);
+
+        console.log('[Auto Peek] 📋 Current user:', currentUser);
+        console.log('[Auto Peek] 📋 Case owner:', caseOwner);
+        console.log('[Auto Peek] 📋 Case status:', caseStatus);
+
+        // Check 1: User must be the owner
+        if (currentUser !== caseOwner) {
+            console.log('[Auto Peek] ⏭️ Skipping — not the case owner.');
+            console.log(`[Auto Peek]    Owner: "${caseOwner}", User: "${currentUser}"`);
+            return;
+        }
+        console.log('[Auto Peek] ✅ User owns this case.');
+
+        // Check 2: Status must be Work in Progress
+        if (!caseStatus) {
+            console.log('[Auto Peek] ⚠️ Could not determine case status. Proceeding anyway...');
+        } else if (!caseStatus.toLowerCase().replace(/-/g, ' ').includes('work in progress')) {
+            console.log('[Auto Peek] ⏭️ Skipping — case status is not "Work in Progress".');
+            console.log(`[Auto Peek]    Status: "${caseStatus}"`);
+            return;
+        } else {
+            console.log('[Auto Peek] ✅ Case is Work in Progress.');
+        }
+
+        // Now watch for the "View seller account" button
+        startPeekProcess();
+
+    }, 500);
+
+    function startPeekProcess() {
+        function tryClick() {
+            if (clicked) return;
+
+            const katButton = document.querySelector('kat-button[label="View seller account"]');
+            if (!katButton) return;
+
+            const button =
+                katButton.shadowRoot?.querySelector('button') ||
+                katButton.querySelector('button');
+
+            if (!button) return;
+
+            const sellerId = getSellerIdFromPage();
+            console.log('[Auto Peek] 🔍 Seller ID from page:', sellerId);
+
+            if (shouldSkipPeek(sellerId)) {
+                clicked = true;
+                observer.disconnect();
+                console.log('[Auto Peek] ✅ Already peeked for seller', sellerId, 'today. Skipping.');
+                return;
+            }
+
+            clicked = true;
+            observer.disconnect();
+            console.log('[Auto Peek] 🎯 Button found. Peeking silently...');
+
+            setTimeout(() => {
+                const originalOpen = unsafeWindow.open;
+                let interceptedSellerId = null;
+
+                unsafeWindow.open = function (url, target, features) {
+                    if (url) {
+                        console.log('[Auto Peek] 🔗 Intercepted SC URL:', url);
+
+                        // Extract seller ID from URL
+                        const mcidMatch = url.match(/mons_sel_mcid=amzn1\.merchant\.o\.([A-Z0-9]+)/);
+                        if (mcidMatch) {
+                            interceptedSellerId = mcidMatch[1];
+                            console.log('[Auto Peek] 🆔 Extracted seller ID:', interceptedSellerId);
+                        }
+
+                        // Open SC URL in background to establish session cookies
+                        console.log('[Auto Peek] 🌐 Opening SC in background to set cookies...');
+                        const scTab = GM_openInTab(url, { active: false, insert: true });
+
+                        // Close the SC tab after cookies are set
+                        setTimeout(() => {
+                            try {
+                                if (!scTab.closed) {
+                                    scTab.close();
+                                    console.log('[Auto Peek] 🔒 SC background tab closed.');
+                                }
+                            } catch (e) {
+                                console.log('[Auto Peek] Could not close SC tab:', e);
+                            }
+                        }, 10000);
+                    }
+                    return { focus() {}, close() {} };
+                };
+
+                button.click();
+                console.log('[Auto Peek] ✅ Peek button clicked.');
+
+                // Save peek data after short delay to capture intercepted URL
+                setTimeout(() => {
+                    const caseId = new URLSearchParams(window.location.search).get("caseId");
+                    const finalSellerId = sellerId || interceptedSellerId;
+
+                    GM_setValue("peeked", JSON.stringify({
+                        ttl: Date.now() + ONE_DAY,
+                        peekTimestamp: Date.now(),
+                        caseId: caseId || '',
+                        merchantIdLegacy: finalSellerId || '',
+                    }));
+
+                    // Clear stale peekAttempt
+                    GM_setValue('peekAttempt', '{}');
+
+                    console.log('[Auto Peek] 💾 Peek saved — case:', caseId, '| seller:', finalSellerId);
+                }, 1000);
+
+                // Restore window.open
+                setTimeout(() => {
+                    unsafeWindow.open = originalOpen;
+                    console.log('[Auto Peek] 🔓 window.open restored.');
+                }, 15000);
+
+                // Keep focus on current page
+                setTimeout(() => window.focus(), 1500);
+
+            }, 1500);
+        }
+
+        const observer = new MutationObserver(tryClick);
+        observer.observe(document.body, { childList: true, subtree: true });
+
+        tryClick();
 
         setTimeout(() => {
-            const originalOpen = unsafeWindow.open;
-            let interceptedSellerId = null;
-
-            unsafeWindow.open = function (url, target, features) {
-                if (url) {
-                    console.log('[Auto Peek] 🔗 Intercepted SC URL:', url);
-
-                    // Extract seller ID from URL
-                    const mcidMatch = url.match(/mons_sel_mcid=amzn1\.merchant\.o\.([A-Z0-9]+)/);
-                    if (mcidMatch) {
-                        interceptedSellerId = mcidMatch[1];
-                        console.log('[Auto Peek] 🆔 Extracted seller ID:', interceptedSellerId);
-                    }
-
-                    // ✅ Open SC URL in background to establish session cookies
-                    console.log('[Auto Peek] 🌐 Opening SC in background to set cookies...');
-                    const scTab = GM_openInTab(url, { active: false, insert: true });
-
-                    // Close the SC tab after cookies are set (give it 5 seconds)
-                    setTimeout(() => {
-                        try {
-                            if (!scTab.closed) {
-                                scTab.close();
-                                console.log('[Auto Peek] 🔒 SC background tab closed.');
-                            }
-                        } catch (e) {
-                            console.log('[Auto Peek] Could not close SC tab:', e);
-                        }
-                    }, 5000);
-                }
-                return { focus() {}, close() {} };
-            };
-
-            button.click();
-            console.log('[Auto Peek] ✅ Peek button clicked.');
-
-            // Save peek data after short delay to capture intercepted URL
-            setTimeout(() => {
-                const caseId = new URLSearchParams(window.location.search).get("caseId");
-                const finalSellerId = sellerId || interceptedSellerId;
-
-                GM_setValue("peeked", JSON.stringify({
-                    ttl: Date.now() + ONE_DAY,
-                    peekTimestamp: Date.now(),
-                    caseId: caseId || '',
-                    merchantIdLegacy: finalSellerId || '',
-                }));
-
-                // Clear stale peekAttempt so SC 404 handler can work fresh
-                GM_setValue('peekAttempt', '{}');
-
-                console.log('[Auto Peek] 💾 Peek saved — case:', caseId, '| seller:', finalSellerId);
-            }, 1000);
-
-            // Restore window.open
-            setTimeout(() => {
-                unsafeWindow.open = originalOpen;
-                console.log('[Auto Peek] 🔓 window.open restored.');
-            }, 5000);
-
-            // Keep focus on current page
-            setTimeout(() => window.focus(), 1500);
-
-        }, 1500);
+            if (!clicked) {
+                observer.disconnect();
+                console.log('[Auto Peek] ⏱️ Button not found within 60s.');
+            }
+        }, 60000);
     }
-
-    const observer = new MutationObserver(tryClick);
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    tryClick();
-
-    setTimeout(() => {
-        if (!clicked) {
-            observer.disconnect();
-            console.log('[Auto Peek] ⏱️ Button not found within 60s.');
-        }
-    }, 60000);
 }
 
     // ========================== Handle SIM ==========================
