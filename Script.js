@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     8.4.04
+// @version     8.4.05
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -3496,56 +3496,46 @@ panel.mappingObserver = mappingObserver;
     }
 
 
-          function findNextButton() {
-      // Strategy 1: Find "Next >" button by text
-      const allClickable = document.querySelectorAll('button, a, [role="button"], span');
-      for (const el of allClickable) {
-        const text = (el.textContent || '').trim();
-        if (/^next\s*>?$/i.test(text) || /^>\s*$/i.test(text) || /^next\s*page$/i.test(text)) {
-          if (
-            !el.disabled &&
-            el.offsetParent !== null &&
-            window.getComputedStyle(el).display !== 'none' &&
-            window.getComputedStyle(el).visibility !== 'hidden' &&
-            !el.classList.contains('disabled')
-          ) {
-            return el;
-          }
+function findNextButton() {
+    // Strategy 1: XPath (most reliable)
+    try {
+        const xpathResult = document.evaluate(
+            '/html/body/div[1]/div/div[2]/div[2]/div[2]/button[1]',
+            document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null
+        );
+        const btn = xpathResult.singleNodeValue;
+        if (btn && btn.textContent.trim().toLowerCase().includes('next') &&
+            btn.offsetParent !== null && !btn.disabled) {
+            console.log('[FNSKU MID Search] Found Next button via XPath');
+            return btn;
         }
-      }
-
-      // Strategy 2: Partial text match
-      for (const el of allClickable) {
-        const text = (el.textContent || '').trim().toLowerCase();
-        if (text.includes('next') && !text.includes('prev') && text.length < 30) {
-          if (
-            !el.disabled &&
-            el.offsetParent !== null &&
-            window.getComputedStyle(el).display !== 'none' &&
-            !el.classList.contains('disabled')
-          ) {
-            return el;
-          }
-        }
-      }
-
-      // Strategy 3: Standard selectors
-      const selectors = [
-        'button[aria-label*="next" i]:not([disabled])',
-        'a[aria-label*="next" i]:not(.disabled)',
-        '.pagination a:not(.disabled):not(.active)',
-        '[class*="pagination"] a:not(.disabled)'
-      ];
-
-      for (const selector of selectors) {
-        try {
-          const el = document.querySelector(selector);
-          if (el && el.offsetParent !== null) return el;
-        } catch (e) { }
-      }
-
-      return null;
+    } catch (e) {
+        console.log('[FNSKU MID Search] XPath failed:', e);
     }
+
+    // Strategy 2: Find button by text
+    const buttons = document.querySelectorAll('button');
+    for (const btn of buttons) {
+        const text = (btn.textContent || '').trim();
+        if (/next/i.test(text) && btn.offsetParent !== null && !btn.disabled) {
+            console.log('[FNSKU MID Search] Found Next button via text:', text);
+            return btn;
+        }
+    }
+
+    // Strategy 3: Find <a> tag
+    const links = document.querySelectorAll('a');
+    for (const link of links) {
+        const text = (link.textContent || '').trim();
+        if (/next/i.test(text) && link.offsetParent !== null) {
+            console.log('[FNSKU MID Search] Found Next button via <a>:', text);
+            return link;
+        }
+    }
+
+    console.log('[FNSKU MID Search] No Next button found');
+    return null;
+}
 
         function getPageSnapshot() {
       const rows = document.querySelectorAll('table tr');
@@ -3555,42 +3545,42 @@ panel.mappingObserver = mappingObserver;
       }).join('|');
     }
 
-    async function waitForContentChange(oldSnapshot, timeout = 10000) {
-      return new Promise((resolve) => {
+async function waitForContentChange(oldSnapshot, timeout = 10000) {
+    return new Promise((resolve) => {
         const startTime = Date.now();
 
         const checkInterval = setInterval(() => {
-          const elapsed = Date.now() - startTime;
+            const elapsed = Date.now() - startTime;
 
-          const rows = document.querySelectorAll('table tr');
-          if (rows.length >= 2) {
-            const currentSnapshot = Array.from(rows).slice(1, 4).map(r => {
-              const cells = r.querySelectorAll('td');
-              return cells[0]?.textContent?.trim() || '';
-            }).join('|');
+            const rows = document.querySelectorAll('table tr');
+            if (rows.length >= 2) {
+                const currentSnapshot = Array.from(rows).slice(1, 4).map(r => {
+                    const cells = r.querySelectorAll('td');
+                    return cells[0]?.textContent?.trim() || '';
+                }).join('|');
 
-            if (currentSnapshot !== oldSnapshot && currentSnapshot.length > 0) {
-              clearInterval(checkInterval);
-              resolve(true);
-              return;
+                if (currentSnapshot !== oldSnapshot && currentSnapshot.length > 0) {
+                    clearInterval(checkInterval);
+                    resolve(true);
+                    return;
+                }
             }
-          }
 
-          const pageText = document.body.innerText.toLowerCase();
-          if (pageText.includes('no results') || pageText.includes('this operation returned no results')) {
-            clearInterval(checkInterval);
-            resolve('no_results');
-            return;
-          }
-
-          if (elapsed >= timeout) {
-            clearInterval(checkInterval);
-            resolve(false);
-            return;
-          }
+            if (elapsed >= timeout) {
+                clearInterval(checkInterval);
+                const nextBtn = findNextButton();
+                if (nextBtn) {
+                    console.log('[FNSKU MID Search] Timeout but Next button still visible, continuing...');
+                    resolve(true);
+                } else {
+                    console.log('[FNSKU MID Search] Timeout and no Next button — end of data');
+                    resolve(false);
+                }
+                return;
+            }
         }, 200);
-      });
-    }
+    });
+}
 
     setTimeout(createFloatingButton, 2000);
     setTimeout(createFloatingButton, 5000);
@@ -6139,93 +6129,85 @@ function ilacIsValidCaseToAttachReport(userId, caseId, caseHistory, caseAttachme
             return results;
         }
 
-        function cmFindNextButton() {
-            const allClickable = document.querySelectorAll('a, button, [role="button"], span');
-            for (const el of allClickable) {
-                const text = (el.textContent || '').trim();
-                if (/^next\s*>?$/i.test(text) || /^>\s*$/i.test(text) || /^next\s*page$/i.test(text)) {
-                    if (
-                        !el.disabled &&
-                        el.offsetParent !== null &&
-                        window.getComputedStyle(el).display !== 'none' &&
-                        window.getComputedStyle(el).visibility !== 'hidden' &&
-                        !el.classList.contains('disabled')
-                    ) {
-                        console.log('[CheckMapping] Found next button:', text, el.tagName);
-                        return el;
-                    }
+function cmFindNextButton() {
+    // Strategy 1: XPath (most reliable for this page)
+    try {
+        const xpathResult = document.evaluate(
+            '/html/body/div[1]/div/div[2]/div[2]/div[2]/button[1]',
+            document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null
+        );
+        const btn = xpathResult.singleNodeValue;
+        if (btn && btn.textContent.trim().toLowerCase().includes('next') &&
+            btn.offsetParent !== null && !btn.disabled) {
+            console.log('[CheckMapping] Found Next button via XPath');
+            return btn;
+        }
+    } catch (e) {
+        console.log('[CheckMapping] XPath failed:', e);
+    }
+
+    // Strategy 2: Find button by text content
+    const buttons = document.querySelectorAll('button');
+    for (const btn of buttons) {
+        const text = (btn.textContent || '').trim();
+        if (/next/i.test(text) && btn.offsetParent !== null && !btn.disabled) {
+            console.log('[CheckMapping] Found Next button via text match:', text);
+            return btn;
+        }
+    }
+
+    // Strategy 3: Find <a> tag with next text
+    const links = document.querySelectorAll('a');
+    for (const link of links) {
+        const text = (link.textContent || '').trim();
+        if (/next/i.test(text) && link.offsetParent !== null) {
+            console.log('[CheckMapping] Found Next button via <a> tag:', text);
+            return link;
+        }
+    }
+
+    console.log('[CheckMapping] No Next button found');
+    return null;
+}
+
+async function cmWaitForContentChange(oldSnapshot, timeout = 10000) {
+    return new Promise((resolve) => {
+        const startTime = Date.now();
+
+        const checkInterval = setInterval(() => {
+            const elapsed = Date.now() - startTime;
+
+            const rows = document.querySelectorAll('table tr');
+            if (rows.length >= 2) {
+                const currentSnapshot = Array.from(rows).slice(1, 4).map(r => {
+                    const cells = r.querySelectorAll('td');
+                    return cells[0]?.textContent?.trim() || '';
+                }).join('|');
+
+                if (currentSnapshot !== oldSnapshot && currentSnapshot.length > 0) {
+                    clearInterval(checkInterval);
+                    resolve(true);
+                    return;
                 }
             }
 
-            for (const el of allClickable) {
-                const text = (el.textContent || '').trim().toLowerCase();
-                if (text.includes('next') && !text.includes('prev') && text.length < 30) {
-                    if (
-                        !el.disabled &&
-                        el.offsetParent !== null &&
-                        window.getComputedStyle(el).display !== 'none' &&
-                        !el.classList.contains('disabled')
-                    ) {
-                        console.log('[CheckMapping] Found next button (partial):', text, el.tagName);
-                        return el;
-                    }
+            if (elapsed >= timeout) {
+                clearInterval(checkInterval);
+                // On timeout, check if Next button still exists
+                const nextBtn = cmFindNextButton();
+                if (nextBtn) {
+                    // Page may still be loading, resolve true to retry
+                    console.log('[CheckMapping] Timeout but Next button still visible, continuing...');
+                    resolve(true);
+                } else {
+                    console.log('[CheckMapping] Timeout and no Next button — end of data');
+                    resolve(false);
                 }
+                return;
             }
-
-            const selectors = [
-                'button[aria-label*="next" i]:not([disabled])',
-                'a[aria-label*="next" i]:not(.disabled)',
-                '.pagination a:not(.disabled):not(.active)',
-                '[class*="pagination"] a:not(.disabled)'
-            ];
-
-            for (const selector of selectors) {
-                try {
-                    const el = document.querySelector(selector);
-                    if (el && el.offsetParent !== null) return el;
-                } catch (e) { }
-            }
-
-            console.log('[CheckMapping] No next button found');
-            return null;
-        }
-
-        async function cmWaitForContentChange(oldSnapshot, timeout = 10000) {
-            return new Promise((resolve) => {
-                const startTime = Date.now();
-
-                const checkInterval = setInterval(() => {
-                    const elapsed = Date.now() - startTime;
-
-                    const rows = document.querySelectorAll('table tr');
-                    if (rows.length >= 2) {
-                        const currentSnapshot = Array.from(rows).slice(1, 4).map(r => {
-                            const cells = r.querySelectorAll('td');
-                            return cells[0]?.textContent?.trim() || '';
-                        }).join('|');
-
-                        if (currentSnapshot !== oldSnapshot && currentSnapshot.length > 0) {
-                            clearInterval(checkInterval);
-                            resolve(true);
-                            return;
-                        }
-                    }
-
-                    const pageText = document.body.innerText.toLowerCase();
-                    if (pageText.includes('no results') || pageText.includes('this operation returned no results')) {
-                        clearInterval(checkInterval);
-                        resolve('no_results');
-                        return;
-                    }
-
-                    if (elapsed >= timeout) {
-                        clearInterval(checkInterval);
-                        resolve(false);
-                        return;
-                    }
-                }, 200);
-            });
-        }
+        }, 200);
+    });
+}
 
         function cmHighlightRow(row, searchTerm) {
             if (!row) return;
@@ -6271,73 +6253,73 @@ function ilacIsValidCaseToAttachReport(userId, caseId, caseHistory, caseAttachme
                 }).join('|');
             }
 
-            while (pageCount < maxPages) {
-                pageCount++;
-                cmMappingUpdateStep('cm-step-search', 'searching', `MID Search: Page ${pageCount}...`);
-                console.log(`[CheckMapping] Searching page ${pageCount}...`);
+while (pageCount < maxPages) {
+    pageCount++;
+    cmMappingUpdateStep('cm-step-search', 'searching', `MID Search: Page ${pageCount}...`);
+    console.log(`[CheckMapping] Searching page ${pageCount}...`);
 
-                const pageText = document.body.innerText.toLowerCase();
-                if (pageText.includes('this operation returned no results') ||
-                    (pageCount > 1 && pageText.includes('no results'))) {
-                    cmAddSearchLog(`Page ${pageCount}: "No results" detected — end of data`);
-                    break;
-                }
+    const pageResults = cmSearchCurrentPage(searchMIDLower);
+    pageResults.forEach((r) => { r.page = pageCount; });
 
-                const pageResults = cmSearchCurrentPage(searchMIDLower);
-                pageResults.forEach((r) => { r.page = pageCount; });
+    console.log(`[CheckMapping] Page ${pageCount}: ${pageResults.length} matches found`);
 
-                console.log(`[CheckMapping] Page ${pageCount}: ${pageResults.length} matches found`);
-
-                if (pageResults.length > 0) {
-                    if (isAsinMode) {
-                        const matchingResults = pageResults.filter((r) => r.fnsku === r.asin);
-                        if (matchingResults.length > 0) {
-                            finalResults = matchingResults;
-                            matchingResults.forEach((r) => cmHighlightRow(r.element, searchMIDLower));
-                            cmScrollToElement(matchingResults[0].element);
-                            cmAddSearchLog(`Page ${pageCount}: Found ${matchingResults.length} result(s) with FNSKU = ASIN`);
-                            found = true;
-                            break;
-                        } else {
-                            cmAddSearchLog(`Page ${pageCount}: Found ${pageResults.length} MID match(es) but FNSKU ≠ ASIN`);
-                        }
-                    } else {
-                        finalResults = pageResults;
-                        pageResults.forEach((r) => cmHighlightRow(r.element, searchMIDLower));
-                        cmScrollToElement(pageResults[0].element);
-                        cmAddSearchLog(`Page ${pageCount}: Found ${pageResults.length} MID match(es)`);
-                        found = true;
-                        break;
-                    }
-                } else {
-                    cmAddSearchLog(`Page ${pageCount}: No matches`);
-                }
-
-                const nextBtn = cmFindNextButton();
-                if (!nextBtn) {
-                    cmAddSearchLog('No next button found — end of pages');
-                    break;
-                }
-
-                const snapshotBefore = getPageSnapshot();
-
-                console.log(`[CheckMapping] Clicking: "${nextBtn.textContent.trim()}" (${nextBtn.tagName})`);
-                nextBtn.click();
-
-                const changeResult = await cmWaitForContentChange(snapshotBefore, 10000);
-
-                if (changeResult === 'no_results') {
-                    cmAddSearchLog(`After page ${pageCount}: "No results" — end of data`);
-                    break;
-                }
-
-                if (changeResult === false) {
-                    cmAddSearchLog(`Page navigation stopped — content did not change after page ${pageCount}`);
-                    break;
-                }
-
-                await cmSleep(500);
+    if (pageResults.length > 0) {
+        if (isAsinMode) {
+            const matchingResults = pageResults.filter((r) => r.fnsku === r.asin);
+            if (matchingResults.length > 0) {
+                finalResults = matchingResults;
+                matchingResults.forEach((r) => cmHighlightRow(r.element, searchMIDLower));
+                cmScrollToElement(matchingResults[0].element);
+                cmAddSearchLog(`Page ${pageCount}: Found ${matchingResults.length} result(s) with FNSKU = ASIN`);
+                found = true;
+                break;
+            } else {
+                cmAddSearchLog(`Page ${pageCount}: Found ${pageResults.length} MID match(es) but FNSKU ≠ ASIN, continuing...`);
             }
+        } else {
+            finalResults = pageResults;
+            pageResults.forEach((r) => cmHighlightRow(r.element, searchMIDLower));
+            cmScrollToElement(pageResults[0].element);
+            cmAddSearchLog(`Page ${pageCount}: Found ${pageResults.length} MID match(es)!`);
+            found = true;
+            break;
+        }
+    } else {
+        cmAddSearchLog(`Page ${pageCount}: No matches`);
+    }
+
+    // === KEY CHANGE: Check for Next button FIRST ===
+    const nextBtn = cmFindNextButton();
+    if (!nextBtn) {
+        cmAddSearchLog('No Next button found — last page reached');
+        console.log('[CheckMapping] No Next button found — stopping search');
+        break;
+    }
+
+    // Take snapshot before clicking
+    const snapshotBefore = getPageSnapshot();
+
+    console.log(`[CheckMapping] Clicking Next button: "${nextBtn.textContent.trim()}"`);
+    nextBtn.click();
+
+    // Wait for content to change
+    const changed = await cmWaitForContentChange(snapshotBefore, 8000);
+
+    if (!changed) {
+        cmAddSearchLog(`Page navigation stopped after page ${pageCount}`);
+        console.log('[CheckMapping] Content did not change — stopping');
+        break;
+    }
+
+    // After page loads, verify Next button status for logging
+    await cmSleep(500);
+
+    // Check if Next button is still visible (just for logging, not for stopping)
+    const nextBtnAfter = cmFindNextButton();
+    if (!nextBtnAfter) {
+        console.log(`[CheckMapping] Next button disappeared after page ${pageCount} — this may be the last page`);
+    }
+}
 
                         const resultsDiv = document.getElementById('cm-search-results');
 
