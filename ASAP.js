@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name              ASAP
 // @namespace         http://tampermonkey.net/
-// @version           1.1.05
+// @version           1.1.06
 // @description       Combined: Auto Peek into seller accounts, Auto Populate MID & FRD, and AUX status enforcement
 // @author            Abhinav
 // @updateURL         https://raw.githubusercontent.com/Abhinav-VK/Productivity-Scripts/refs/heads/main/ASAP.js
@@ -71,6 +71,7 @@
     const CA_FCS = ["YOW1","YUL2","YVR2","YVR3","YVR4","YYC1","YYZ1","YYZ2","YYZ3","YYZ4","YYZ7","YYZ9"];
     const MX_FCS = ["MEX1","MEX2","MEX3"];
 
+    const tabCreatedAt = Date.now(); // Add this BEFORE GM_openInTab
     function getMarketplaceFromFc(fc) {
         if (US_FCS.includes(fc)) return "amazon.com";
         if (CA_FCS.includes(fc)) return "amazon.ca";
@@ -403,7 +404,26 @@ function handleParagonPeek() {
                         console.log('[Auto Peek] 🌐 Opening SC in background to set cookies...');
                         const scTab = GM_openInTab(url, { active: false, insert: true });
 
-                        // Close SC tab after 5 seconds
+                        // Track tab load state
+                        let scTabLoaded = false;
+
+                        // Attempt to detect SC page load via DOM readiness
+                        if (scTab && scTab.window) {
+                            try {
+                                // Listen for SC page's "load" event
+                                scTab.window.addEventListener('load', () => {
+                                    if (scTabLoaded) return; // Prevent duplicate triggers
+                                    scTabLoaded = true;
+                                    console.log('[Auto Peek] ✅ SC page loaded. Closing tab...');
+                                    scTab.close();
+                                    clearInterval(closeTimer); // Kill fallback timer
+                                });
+                            } catch (e) {
+                                console.warn('[Auto Peek] ⚠️ Could not attach load listener:', e);
+                            }
+                        }
+
+                        // Fallback: Close after 20 seconds if load event fails
                         const closeTimer = setInterval(() => {
                             try {
                                 if (scTab.closed) {
@@ -411,16 +431,37 @@ function handleParagonPeek() {
                                     console.log('[Auto Peek] 🔒 SC tab already closed.');
                                     return;
                                 }
-                                scTab.close();
-                                clearInterval(closeTimer);
-                                console.log('[Auto Peek] 🔒 SC background tab closed.');
+
+                                // Close immediately if we detected load via event
+                                if (scTabLoaded) {
+                                    scTab.close();
+                                    clearInterval(closeTimer);
+                                    console.log('[Auto Peek] 🔒 SC tab closed (load confirmed).');
+                                    return;
+                                }
+
+                                // Fallback: Close after 20 seconds total
+                                const elapsed = Date.now() - tabCreatedAt;
+                                if (elapsed > 20000) {
+                                    scTab.close();
+                                    clearInterval(closeTimer);
+                                    console.log('[Auto Peek] 🔒 SC tab closed (20s timeout).');
+                                }
                             } catch (e) {
-                                // Tab not ready yet, retry
+                                // Tab not accessible yet – keep retrying
                             }
                         }, 1000);
 
-                        // Safety: stop trying after 15 seconds
-                        setTimeout(() => clearInterval(closeTimer), 15000);
+                        // Safety: Ensure cleanup after 25 seconds
+                        setTimeout(() => {
+                            clearInterval(closeTimer);
+                            if (!scTab.closed && !scTabLoaded) {
+                                try {
+                                    scTab.close();
+                                    console.log('[Auto Peek] 🔒 SC tab closed (25s hard timeout).');
+                                } catch (e) {}
+                            }
+                        }, 25000);
                     }
                     return { focus() {}, close() {} };
                 };
