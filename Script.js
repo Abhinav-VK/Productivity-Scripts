@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     8.4.05
+// @version     8.4.06
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -265,680 +265,727 @@
 
 
 
-      ////////////////////////////////
-  // 1) Hygiene Checks Script   //
-  ////////////////////////////////
+// =============================================
+// HYGIENE CHECKS SCRIPT (WITH ALL FIXES APPLIED)
+// =============================================
 
-  if (isFeatureEnabled('hygieneChecks')) {
+if (isFeatureEnabled('hygieneChecks')) {
+  const HC_ANNOTATION_KEY = 'hygieneAnnotationMap';
 
-    const HC_ANNOTATION_KEY = 'hygieneAnnotationMap';
-    const HC_SECTIONS = [
-  {
-    title: 'RC',
-    questions: [
-      'Are SANTOS and Amazon Distribution checked in *Seller Central*?',
-      'Are all the units addressed in the *duplicate case* to merge or transfer?',
-      'Is the *RC* selected for all units, including overage and manual investigation?'
-    ]
-  },
-  {
-    title: 'PSE',
-    questions: [
-      'Is the resolution of *all ASIN quantities* mentioned in the final outbound?',
-      'Are *separate RMS IDs* created for supported and unsupported FNSKUs?',
-      'Is the *ILAC_stranded_inventory* blurb included, if newly mapped units were recovered?',
-    ]
-  },
-  {
-    title: 'Hygiene',
-    questions: [
-      'Are *Beacon Open Events* annotated for overages?',
-      'Is the source of the *Shipped date* annotated in POO section of Beacon?'
-    ]
+  // ===================
+  // 1. CASE ID NORMALIZATION
+  // ===================
+  function normalizeCaseId(id) {
+    return id ? id.replace(/[^0-9]/g, '') : null; // Removes #, letters, etc.
   }
-];
 
-    function hcGetCaseIdFromUrl() {
-      const match = location.href.match(/caseId=([^&]+)/);
-      return match ? match[1] : null;
+  // ===================
+  // 2. SAFE STORAGE HANDLING
+  // ===================
+  function safeGMGetValue(key, defaultVal = '{}') {
+    try {
+      return GM_getValue(key, defaultVal);
+    } catch (e) {
+      console.warn(`[HygieneChecks] GM_getValue failed for ${key}:`, e);
+      return defaultVal;
+    }
+  }
+
+  function safeGMSetValue(key, value) {
+    try {
+      GM_setValue(key, value);
+    } catch (e) {
+      console.warn(`[HygieneChecks] GM_setValue failed for ${key}:`, e);
+    }
+  }
+
+  // ===================
+  // 3. QUESTION SECTIONS (YOUR ORIGINAL QUESTIONS)
+  // ===================
+  const HC_SECTIONS = [
+    {
+      title: 'RC',
+      questions: [
+        'Are SANTOS and Amazon Distribution checked in *Seller Central*?',
+        'Are all the units addressed in the *duplicate case* to merge or transfer?',
+        'Is the *RC* selected for all units, including overage and manual investigation?'
+      ]
+    },
+    {
+      title: 'PSE',
+      questions: [
+        'Is the resolution of *all ASIN quantities* mentioned in the final outbound?',
+        'Are *separate RMS IDs* created for supported and unsupported FNSKUs?',
+        'Is the *ILAC_stranded_inventory* blurb included, if newly mapped units were recovered?',
+      ]
+    },
+    {
+      title: 'Hygiene',
+      questions: [
+        'Are *Beacon Open Events* annotated for overages?',
+        'Is the source of the *Shipped date* annotated in POO section of Beacon?'
+      ]
+    }
+  ];
+
+  // ===================
+  // 3. ANNOTATION MAP HANDLING
+  // ===================
+  function hcGetAnnotationMap() {
+    try {
+      const map = JSON.parse(safeGMGetValue(HC_ANNOTATION_KEY, '{}'));
+      return map;
+    } catch {
+      return {};
+    }
+  }
+
+  function hcSetAnnotationForCase(caseId, value) {
+    console.log(`[HygieneChecks] Setting annotation for ${caseId}:`, value);
+    const map = hcGetAnnotationMap();
+    map[caseId] = { annotated: value, timestamp: Date.now() };
+    safeGMSetValue(HC_ANNOTATION_KEY, JSON.stringify(map));
+    console.log(`[HygieneChecks] Updated annotation map:`, map);
+  }
+
+  function hcIsCaseAnnotated(caseId) {
+    if (!caseId) {
+      console.warn(`[HygieneChecks] No case ID provided for annotation check`);
+      return false;
+    }
+    const map = hcGetAnnotationMap();
+    const entry = map[caseId];
+    console.log(`[HygieneChecks] Checking annotation for ${caseId}:`, entry);
+    return entry?.annotated === true;
+  }
+
+  // ===================
+  // 4. CASE ID EXTRACTION (NORMALIZED)
+  // ===================
+  function hcGetCaseIdFromUrl() {
+    const match = location.href.match(/caseId=([^&]+)/);
+    return match ? normalizeCaseId(match[1]) : null;
+  }
+
+  // ===================
+  // 5. FORM STATE HANDLING (NORMALIZED KEYS)
+  // ===================
+  function hcSaveFormState() {
+    if (!hcCaseId) return;
+    const answers = {};
+    document.querySelectorAll('#hc-checklist-form input[type="radio"]:checked').forEach(r => {
+      answers[r.name] = r.value;
+    });
+    const state = { answers, visible: hcFormVisible };
+    safeGMSetValue(`hcFormState_${hcCaseId}`, JSON.stringify(state));
+  }
+
+  function hcGetSavedFormState() {
+    if (!hcCaseId) return null;
+    try {
+      const raw = safeGMGetValue(`hcFormState_${hcCaseId}`, '{}');
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  // ===================
+  // 6. STYLES (UNCHANGED)
+  // ===================
+  GM_addStyle(`
+    #hc-checklist-form {
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+      border: 1px solid #e1e5e9;
+      overflow: hidden;
+      margin-bottom: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      display: none;
     }
 
-    function hcGetAnnotationMap() {
+    #hc-checklist-form.visible {
+      display: block;
+    }
+
+    .hc-form-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .hc-form-title {
+      color: white;
+      font-weight: 700;
+      font-size: 15px;
+    }
+
+    .hc-form-body {
+      padding: 14px;
+      max-height: 60vh;
+      overflow-y: auto;
+    }
+
+    .hc-section-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #667eea;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 8px 0 6px 0;
+      margin-top: 10px;
+      border-bottom: 2px solid #667eea;
+      margin-bottom: 8px;
+    }
+
+    .hc-section-title:first-child {
+      margin-top: 0;
+    }
+
+    .hc-question {
+      padding: 8px 0;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .hc-question:last-child {
+      border-bottom: none;
+    }
+
+    .hc-question-text {
+      font-size: 12.5px;
+      color: #2d3748;
+      margin-bottom: 6px;
+      line-height: 1.4;
+    }
+
+    .hc-question-number {
+      font-weight: 700;
+      color: #667eea;
+      margin-right: 4px;
+    }
+
+    .hc-options {
+      display: flex;
+      gap: 16px;
+      padding-left: 20px;
+    }
+
+    .hc-options label {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      color: #4a5568;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .hc-options input[type="radio"] {
+      margin: 0;
+      accent-color: #667eea;
+      cursor: pointer;
+    }
+
+    .hc-options label.disabled {
+      cursor: default;
+      opacity: 0.8;
+    }
+
+    .hc-options input[type="radio"]:disabled {
+      cursor: default;
+    }
+
+    .hc-form-footer {
+      padding: 12px 14px;
+      background: #fafbfc;
+      border-top: 1px solid #e1e5e9;
+      display: flex;
+      justify-content: center;
+    }
+
+    #hc-annotate-btn {
+      padding: 10px 32px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    #hc-annotate-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+
+    #hc-annotate-btn:active {
+      transform: translateY(0);
+    }
+
+    .hc-status-msg {
+      text-align: center;
+      padding: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      display: none;
+    }
+
+    .hc-status-msg.error {
+      display: block;
+      color: #e53e3e;
+      background: #fef2f2;
+      border-radius: 4px;
+      margin: 0 14px 10px 14px;
+    }
+
+    .hc-status-msg.success {
+      display: block;
+      color: #166534;
+      background: #dcfce7;
+      border-radius: 4px;
+      margin: 0 14px 10px 14px;
+    }
+
+    #hc-toggle-btn {
+      display: block;
+      width: 100%;
+      padding: 10px 16px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-align: center;
+      margin-bottom: 12px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    #hc-toggle-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+
+    #hc-toggle-btn.annotated {
+      background: linear-gradient(135deg, #48bb78, #38a169);
+    }
+
+    .hc-blocked-btn {
+      opacity: 0.5 !important;
+      cursor: not-allowed !important;
+      pointer-events: none !important;
+    }
+
+    .hc-block-prompt {
+      display: block;
+      font-size: 12px;
+      color: #e53e3e;
+      font-weight: 600;
+      margin-top: 8px;
+      padding: 6px 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      animation: hcFadeIn 0.3s ease-out;
+    }
+
+    @keyframes hcFadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    .hc-annotated-badge {
+      display: inline-block;
+      padding: 3px 10px;
+      background: linear-gradient(135deg, #48bb78, #38a169);
+      color: white;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .hc-completed-banner {
+      text-align: center;
+      padding: 10px 14px;
+      background: #f0fff4;
+      border-bottom: 1px solid #c6f6d5;
+    }
+  `);
+
+  // ===================
+  // 7. PARAGON PAGE LOGIC
+  // ===================
+  if (/paragon-.*\.amazon\.com\/hz\/(view-case|case)\?caseId=/.test(location.href)) {
+    const hcCaseId = hcGetCaseIdFromUrl();
+    let hcFormVisible = false;
+
+    function hcSaveFormState() {
+      if (!hcCaseId) return;
+      const answers = {};
+      document.querySelectorAll('#hc-checklist-form input[type="radio"]:checked').forEach(r => {
+        answers[r.name] = r.value;
+      });
+      const state = { answers, visible: hcFormVisible };
+      safeGMSetValue(`hcFormState_${hcCaseId}`, JSON.stringify(state));
+    }
+
+    function hcGetSavedFormState() {
+      if (!hcCaseId) return null;
       try {
-        const map = GM_getValue(HC_ANNOTATION_KEY, '{}');
-        return JSON.parse(map);
+        const raw = safeGMGetValue(`hcFormState_${hcCaseId}`, '{}');
+        return JSON.parse(raw);
       } catch {
-        return {};
+        return null;
       }
     }
 
-    function hcSetAnnotationForCase(caseId, value) {
-      const map = hcGetAnnotationMap();
-      map[caseId] = { annotated: value, timestamp: Date.now() };
-      GM_setValue(HC_ANNOTATION_KEY, JSON.stringify(map));
+    function hcClearFormState() {
+      if (!hcCaseId) return;
+      safeGMSetValue(`hcFormState_${hcCaseId}`, '{}');
     }
 
-    function hcIsCaseAnnotated(caseId) {
-      if (!caseId) return false;
-      const map = hcGetAnnotationMap();
-      const entry = map[caseId];
-      if (!entry) return false;
-      return entry.annotated === true;
-    }
+    function hcRestoreFormState() {
+      const state = hcGetSavedFormState();
+      if (!state) return;
 
-    GM_addStyle(`
-      #hc-checklist-form {
-        background: white;
-        border-radius: 10px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-        border: 1px solid #e1e5e9;
-        overflow: hidden;
-        margin-bottom: 16px;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        display: none;
-      }
-
-      #hc-checklist-form.visible {
-        display: block;
-      }
-
-      .hc-form-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 12px 16px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-      }
-
-      .hc-form-title {
-        color: white;
-        font-weight: 700;
-        font-size: 15px;
-      }
-
-      .hc-form-body {
-        padding: 14px;
-        max-height: 60vh;
-        overflow-y: auto;
-      }
-
-      .hc-section-title {
-        font-size: 13px;
-        font-weight: 700;
-        color: #667eea;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        padding: 8px 0 6px 0;
-        margin-top: 10px;
-        border-bottom: 2px solid #667eea;
-        margin-bottom: 8px;
-      }
-
-      .hc-section-title:first-child {
-        margin-top: 0;
-      }
-
-      .hc-question {
-        padding: 8px 0;
-        border-bottom: 1px solid #f0f0f0;
-      }
-
-      .hc-question:last-child {
-        border-bottom: none;
-      }
-
-      .hc-question-text {
-        font-size: 12.5px;
-        color: #2d3748;
-        margin-bottom: 6px;
-        line-height: 1.4;
-      }
-
-      .hc-question-number {
-        font-weight: 700;
-        color: #667eea;
-        margin-right: 4px;
-      }
-
-      .hc-options {
-        display: flex;
-        gap: 16px;
-        padding-left: 20px;
-      }
-
-      .hc-options label {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        font-size: 12px;
-        color: #4a5568;
-        cursor: pointer;
-        user-select: none;
-      }
-
-      .hc-options input[type="radio"] {
-        margin: 0;
-        accent-color: #667eea;
-        cursor: pointer;
-      }
-
-      .hc-options label.disabled {
-        cursor: default;
-        opacity: 0.8;
-      }
-
-      .hc-options input[type="radio"]:disabled {
-        cursor: default;
-      }
-
-      .hc-form-footer {
-        padding: 12px 14px;
-        background: #fafbfc;
-        border-top: 1px solid #e1e5e9;
-        display: flex;
-        justify-content: center;
-      }
-
-      #hc-annotate-btn {
-        padding: 10px 32px;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
-        border-radius: 6px;
-        font-size: 14px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.2s ease;
-      }
-
-      #hc-annotate-btn:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-      }
-
-      #hc-annotate-btn:active {
-        transform: translateY(0);
-      }
-
-      .hc-status-msg {
-        text-align: center;
-        padding: 8px;
-        font-size: 12px;
-        font-weight: 600;
-        display: none;
-      }
-
-      .hc-status-msg.error {
-        display: block;
-        color: #e53e3e;
-        background: #fef2f2;
-        border-radius: 4px;
-        margin: 0 14px 10px 14px;
-      }
-
-      .hc-status-msg.success {
-        display: block;
-        color: #166534;
-        background: #dcfce7;
-        border-radius: 4px;
-        margin: 0 14px 10px 14px;
-      }
-
-      #hc-toggle-btn {
-        display: block;
-        width: 100%;
-        padding: 10px 16px;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
-        border-radius: 8px;
-        font-size: 14px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        text-align: center;
-        margin-bottom: 12px;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      }
-
-      #hc-toggle-btn:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-      }
-
-      #hc-toggle-btn.annotated {
-        background: linear-gradient(135deg, #48bb78, #38a169);
-      }
-
-      .hc-blocked-btn {
-        opacity: 0.5 !important;
-        cursor: not-allowed !important;
-        pointer-events: none !important;
-      }
-
-      .hc-block-prompt {
-        display: block;
-        font-size: 12px;
-        color: #e53e3e;
-        font-weight: 600;
-        margin-top: 8px;
-        padding: 6px 0;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        animation: hcFadeIn 0.3s ease-out;
-      }
-
-      @keyframes hcFadeIn {
-        from { opacity: 0; }
-        to { opacity: 1; }
-      }
-
-      .hc-annotated-badge {
-        display: inline-block;
-        padding: 3px 10px;
-        background: linear-gradient(135deg, #48bb78, #38a169);
-        color: white;
-        border-radius: 10px;
-        font-size: 11px;
-        font-weight: 700;
-        margin-bottom: 8px;
-      }
-
-      .hc-completed-banner {
-        text-align: center;
-        padding: 10px 14px;
-        background: #f0fff4;
-        border-bottom: 1px solid #c6f6d5;
-      }
-    `);
-
-    // =============================================
-    // PARAGON PAGE
-    // =============================================
-
-    if (/paragon-.*\.amazon\.com\/hz\/(view-case|case)\?caseId=/.test(location.href)) {
-
-      const hcCaseId = hcGetCaseIdFromUrl();
-      let hcFormVisible = false;
-
-      function hcSaveFormState() {
-        if (!hcCaseId) return;
-        const answers = {};
-        document.querySelectorAll('#hc-checklist-form input[type="radio"]:checked').forEach(r => {
-          answers[r.name] = r.value;
+      if (state.answers) {
+        Object.entries(state.answers).forEach(([name, value]) => {
+          const radio = document.querySelector(`input[name="${name}"][value="${value}"]`);
+          if (radio) radio.checked = true;
         });
-        const state = {
-          answers: answers,
-          visible: hcFormVisible
-        };
-        GM_setValue('hcFormState_' + hcCaseId, JSON.stringify(state));
       }
 
-      function hcGetSavedFormState() {
-        if (!hcCaseId) return null;
-        try {
-          const raw = GM_getValue('hcFormState_' + hcCaseId, '{}');
-          const data = JSON.parse(raw);
-          if (data.answers) return data;
-          return null;
-        } catch {
-          return null;
+      if (state.visible) {
+        const form = document.getElementById('hc-checklist-form');
+        const toggleBtn = document.getElementById('hc-toggle-btn');
+        if (form) {
+          form.classList.add('visible');
+          hcFormVisible = true;
+        }
+        if (toggleBtn) {
+          toggleBtn.textContent = 'Hide Checklist';
         }
       }
+    }
 
-      function hcClearFormState() {
-        if (!hcCaseId) return;
-        GM_setValue('hcFormState_' + hcCaseId, '{}');
-      }
+    function hcBuildFormHTML(readOnly) {
+      let questionIndex = 0;
+      let html = '';
 
-      function hcRestoreFormState() {
-        const state = hcGetSavedFormState();
-        if (!state) return;
-
-        if (state.answers) {
-          Object.entries(state.answers).forEach(([name, value]) => {
-            const radio = document.querySelector(`input[name="${name}"][value="${value}"]`);
-            if (radio) radio.checked = true;
-          });
-        }
-
-        if (state.visible) {
-          const form = document.getElementById('hc-checklist-form');
-          const toggleBtn = document.getElementById('hc-toggle-btn');
-          if (form) {
-            form.classList.add('visible');
-            hcFormVisible = true;
-          }
-          if (toggleBtn) {
-            toggleBtn.textContent = 'Hide Checklist';
-          }
-        }
-      }
-
-      function hcBuildFormHTML(readOnly) {
-          let questionIndex = 0;
-          let html = '';
-
-          HC_SECTIONS.forEach(section => {
-              html += `<div class="hc-section-title">${section.title}</div>`;
-              section.questions.forEach(q => {
-                  questionIndex++;
-                  const disabled = readOnly ? 'disabled' : '';
-                  const labelClass = readOnly ? 'class="disabled"' : '';
-                  // Convert *text* to <strong>text</strong> for UI display
-                  const displayQuestion = q.replace(/\*([^*]+)\*/g, '<strong>$1</strong>');
-                  html += `
-        <div class="hc-question">
-          <div class="hc-question-text">
-            <span class="hc-question-number">${questionIndex})</span> ${displayQuestion}
+      HC_SECTIONS.forEach(section => {
+        html += `<div class="hc-section-title">${section.title}</div>`;
+        section.questions.forEach(q => {
+          questionIndex++;
+          const disabled = readOnly ? 'disabled' : '';
+          const labelClass = readOnly ? 'class="disabled"' : '';
+          const displayQuestion = q.replace(/\*([^*]+)\*/g, '<strong>$1</strong>');
+          html += `
+          <div class="hc-question">
+            <div class="hc-question-text">
+              <span class="hc-question-number">${questionIndex})</span> ${displayQuestion}
+            </div>
+            <div class="hc-options">
+              <label ${labelClass}><input type="radio" name="hc-q${questionIndex}" value="Yes" ${disabled}> Yes</label>
+              <label ${labelClass}><input type="radio" name="hc-q${questionIndex}" value="No" ${disabled}> No</label>
+              <label ${labelClass}><input type="radio" name="hc-q${questionIndex}" value="NA" ${disabled}> NA</label>
+            </div>
           </div>
-          <div class="hc-options">
-            <label ${labelClass}><input type="radio" name="hc-q${questionIndex}" value="Yes" ${disabled}> Yes</label>
-            <label ${labelClass}><input type="radio" name="hc-q${questionIndex}" value="No" ${disabled}> No</label>
-            <label ${labelClass}><input type="radio" name="hc-q${questionIndex}" value="NA" ${disabled}> NA</label>
-          </div>
-        </div>
-      `;
-              });
-          });
-
-          return { html, totalQuestions: questionIndex };
-      }
-
-      function hcRemovePrompts() {
-        document.querySelectorAll('.hc-block-prompt').forEach(p => p.remove());
-      }
-
-      function hcUnblockAllButtons() {
-        document.querySelectorAll('.hc-blocked-btn').forEach(btn => {
-          btn.classList.remove('hc-blocked-btn');
-          btn.removeAttribute('data-hc-blocked');
+        `;
         });
-        hcRemovePrompts();
+      });
+
+      return { html, totalQuestions: questionIndex };
+    }
+
+    function hcRemovePrompts() {
+      document.querySelectorAll('.hc-block-prompt').forEach(p => p.remove());
+    }
+
+    function hcUnblockAllButtons() {
+      document.querySelectorAll('.hc-blocked-btn').forEach(btn => {
+        btn.classList.remove('hc-blocked-btn');
+        btn.removeAttribute('data-hc-blocked');
+      });
+      hcRemovePrompts();
+    }
+
+    function hcFindAndBlockButtons() {
+      if (hcIsCaseAnnotated(hcCaseId)) {
+        hcUnblockAllButtons();
+        return;
       }
 
-      function hcFindAndBlockButtons() {
-        if (hcIsCaseAnnotated(hcCaseId)) {
-          hcUnblockAllButtons();
-          return;
+      const reviewKatBtn = document.querySelector('kat-button.transition-button[label="Review"]');
+      if (reviewKatBtn) {
+        const innerBtn = reviewKatBtn.querySelector('button');
+        if (innerBtn && !innerBtn.classList.contains('hc-blocked-btn')) {
+          innerBtn.classList.add('hc-blocked-btn');
+          innerBtn.setAttribute('data-hc-blocked', 'true');
         }
-
-        const reviewKatBtn = document.querySelector('kat-button.transition-button[label="Review"]');
-        if (reviewKatBtn) {
-          const innerBtn = reviewKatBtn.querySelector('button');
-          if (innerBtn && !innerBtn.classList.contains('hc-blocked-btn')) {
-            innerBtn.classList.add('hc-blocked-btn');
-            innerBtn.setAttribute('data-hc-blocked', 'true');
-          }
-          if (!reviewKatBtn.classList.contains('hc-blocked-btn')) {
-            reviewKatBtn.classList.add('hc-blocked-btn');
-            reviewKatBtn.setAttribute('data-hc-blocked', 'true');
-          }
-
-          if (!document.querySelector('.hc-block-prompt')) {
-            const buttonGroup = reviewKatBtn.closest('.transition-button-group') || reviewKatBtn.parentElement;
-            if (buttonGroup) {
-              const prompt = document.createElement('div');
-              prompt.className = 'hc-block-prompt';
-              prompt.textContent = 'Complete the Hygiene Checks to proceed further';
-              buttonGroup.insertAdjacentElement('afterend', prompt);
-            }
-          }
-          return;
+        if (!reviewKatBtn.classList.contains('hc-blocked-btn')) {
+          reviewKatBtn.classList.add('hc-blocked-btn');
+          reviewKatBtn.setAttribute('data-hc-blocked', 'true');
         }
-
-        document.querySelectorAll('button, kat-button').forEach(btn => {
-          const text = (btn.textContent || btn.getAttribute('label') || '').replace(/\s+/g, ' ').trim().toLowerCase();
-          if (text === 'review') {
-            if (!btn.classList.contains('hc-blocked-btn')) {
-              btn.classList.add('hc-blocked-btn');
-              btn.setAttribute('data-hc-blocked', 'true');
-            }
-            const inner = btn.querySelector('button');
-            if (inner && !inner.classList.contains('hc-blocked-btn')) {
-              inner.classList.add('hc-blocked-btn');
-              inner.setAttribute('data-hc-blocked', 'true');
-            }
-          }
-        });
 
         if (!document.querySelector('.hc-block-prompt')) {
-          const blocked = document.querySelector('.hc-blocked-btn');
-          if (blocked) {
-            const container = blocked.closest('.transition-button-group') || blocked.closest('div') || blocked.parentElement;
-            if (container) {
-              const prompt = document.createElement('div');
-              prompt.className = 'hc-block-prompt';
-              prompt.textContent = 'Complete the Hygiene Checks to proceed further';
-              container.insertAdjacentElement('afterend', prompt);
-            }
+          const buttonGroup = reviewKatBtn.closest('.transition-button-group') || reviewKatBtn.parentElement;
+          if (buttonGroup) {
+            const prompt = document.createElement('div');
+            prompt.className = 'hc-block-prompt';
+            prompt.textContent = 'Complete the Hygiene Checks to proceed further';
+            buttonGroup.insertAdjacentElement('afterend', prompt);
+          }
+        }
+        return;
+      }
+
+      document.querySelectorAll('button, kat-button').forEach(btn => {
+        const text = (btn.textContent || btn.getAttribute('label') || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        if (text === 'review') {
+          if (!btn.classList.contains('hc-blocked-btn')) {
+            btn.classList.add('hc-blocked-btn');
+            btn.setAttribute('data-hc-blocked', 'true');
+          }
+          const inner = btn.querySelector('button');
+          if (inner && !inner.classList.contains('hc-blocked-btn')) {
+            inner.classList.add('hc-blocked-btn');
+            inner.setAttribute('data-hc-blocked', 'true');
+          }
+        }
+      });
+
+      if (!document.querySelector('.hc-block-prompt')) {
+        const blocked = document.querySelector('.hc-blocked-btn');
+        if (blocked) {
+          const container = blocked.closest('.transition-button-group') || blocked.closest('div') || blocked.parentElement;
+          if (container) {
+            const prompt = document.createElement('div');
+            prompt.className = 'hc-block-prompt';
+            prompt.textContent = 'Complete the Hygiene Checks to proceed further';
+            container.insertAdjacentElement('afterend', prompt);
           }
         }
       }
+    }
 
-            function hcBuildCompletedForm() {
-        const isAnnotated = hcIsCaseAnnotated(hcCaseId);
-        if (!isAnnotated) return null;
+    function hcBuildCompletedForm() {
+      const isAnnotated = hcIsCaseAnnotated(hcCaseId);
+      if (!isAnnotated) return null;
 
+      const { html, totalQuestions } = hcBuildFormHTML(false);
+      const savedState = hcGetSavedFormState();
+
+      const formHtml = `
+        <div class="hc-form-header">
+          <span class="hc-form-title">ILAC Investigation Checklist</span>
+        </div>
+        <div class="hc-completed-banner">
+          <div class="hc-annotated-badge">✓ Checklist Completed</div>
+          <p style="font-size: 11px; color: #718096; margin-top: 4px;">Edit answers and re-annotate if needed</p>
+        </div>
+        <div class="hc-form-body">
+          ${html}
+        </div>
+        <div id="hc-status" class="hc-status-msg"></div>
+        <div class="hc-form-footer">
+          <button id="hc-annotate-btn">Re-Annotate</button>
+        </div>
+      `;
+
+      return { formHtml, savedAnswers: savedState?.answers || {}, totalQuestions };
+    }
+
+    function hcInjectSidebar() {
+      const sidebar = document.querySelector('#page-sidebar');
+      if (!sidebar || document.getElementById('hc-sidebar-container')) return;
+
+      const container = document.createElement('div');
+      container.id = 'hc-sidebar-container';
+      container.style.cssText = 'width: 100%; padding: 0 10px; box-sizing: border-box; margin-top: 10px;';
+
+      const toggleBtn = document.createElement('button');
+      toggleBtn.id = 'hc-toggle-btn';
+
+      const isAnnotated = hcIsCaseAnnotated(hcCaseId);
+
+      if (isAnnotated) {
+        toggleBtn.textContent = '✓ Checklist Completed';
+        toggleBtn.classList.add('annotated');
+      } else {
+        toggleBtn.textContent = 'Hygiene Checks';
+      }
+
+      const form = document.createElement('div');
+      form.id = 'hc-checklist-form';
+
+      if (isAnnotated) {
+        const completed = hcBuildCompletedForm();
+        if (completed) {
+          form.innerHTML = completed.formHtml;
+        }
+      } else {
         const { html, totalQuestions } = hcBuildFormHTML(false);
-        const savedState = hcGetSavedFormState();
-
-        const formHtml = `
+        form.innerHTML = `
           <div class="hc-form-header">
             <span class="hc-form-title">ILAC Investigation Checklist</span>
-          </div>
-          <div class="hc-completed-banner">
-            <div class="hc-annotated-badge">✓ Checklist Completed</div>
-            <p style="font-size: 11px; color: #718096; margin-top: 4px;">Edit answers and re-annotate if needed</p>
           </div>
           <div class="hc-form-body">
             ${html}
           </div>
           <div id="hc-status" class="hc-status-msg"></div>
           <div class="hc-form-footer">
-            <button id="hc-annotate-btn">Re-Annotate</button>
+            <button id="hc-annotate-btn">Annotate</button>
           </div>
         `;
-
-        return { formHtml, savedAnswers: savedState?.answers || {}, totalQuestions };
       }
 
-      function hcInjectSidebar() {
-        const sidebar = document.querySelector('#page-sidebar');
-        if (!sidebar || document.getElementById('hc-sidebar-container')) return;
-
-        const container = document.createElement('div');
-        container.id = 'hc-sidebar-container';
-        container.style.cssText = 'width: 100%; padding: 0 10px; box-sizing: border-box; margin-top: 10px;';
-
-        const toggleBtn = document.createElement('button');
-        toggleBtn.id = 'hc-toggle-btn';
-
-        const isAnnotated = hcIsCaseAnnotated(hcCaseId);
-
-        if (isAnnotated) {
-          toggleBtn.textContent = '✓ Checklist Completed';
-          toggleBtn.classList.add('annotated');
+      toggleBtn.addEventListener('click', () => {
+        if (form.classList.contains('visible')) {
+          form.classList.remove('visible');
+          hcFormVisible = false;
+          toggleBtn.textContent = isAnnotated ? '✓ Checklist Completed' : 'Hygiene Checks';
+          if (isAnnotated) toggleBtn.classList.add('annotated');
         } else {
-          toggleBtn.textContent = 'Hygiene Checks';
+          form.classList.add('visible');
+          hcFormVisible = true;
+          toggleBtn.textContent = 'Hide Checklist';
+          toggleBtn.classList.remove('annotated');
+        }
+        if (!isAnnotated) hcSaveFormState();
+      });
+
+      container.appendChild(toggleBtn);
+      container.appendChild(form);
+      sidebar.insertBefore(container, sidebar.firstChild);
+
+      if (isAnnotated) {
+        const savedState = hcGetSavedFormState();
+        if (savedState && savedState.answers) {
+          Object.entries(savedState.answers).forEach(([name, value]) => {
+            const radio = form.querySelector(`input[name="${name}"][value="${value}"]`);
+            if (radio) radio.checked = true;
+          });
         }
 
-        const form = document.createElement('div');
-        form.id = 'hc-checklist-form';
+        const reAnnotateBtn = document.getElementById('hc-annotate-btn');
+        if (reAnnotateBtn) {
+          const totalQ = hcBuildFormHTML(false).totalQuestions;
+          reAnnotateBtn.addEventListener('click', () => {
+            hcSubmitChecklist(totalQ);
+          });
 
-        if (isAnnotated) {
-          // Build read-only completed form
-          const completed = hcBuildCompletedForm();
-          if (completed) {
-            form.innerHTML = completed.formHtml;
-          }
-        } else {
-          const { html, totalQuestions } = hcBuildFormHTML(false);
-          form.innerHTML = `
-            <div class="hc-form-header">
-              <span class="hc-form-title">ILAC Investigation Checklist</span>
-            </div>
-            <div class="hc-form-body">
-              ${html}
-            </div>
-            <div id="hc-status" class="hc-status-msg"></div>
-            <div class="hc-form-footer">
-              <button id="hc-annotate-btn">Annotate</button>
-            </div>
-          `;
-        }
-
-        toggleBtn.addEventListener('click', () => {
-          if (form.classList.contains('visible')) {
-            form.classList.remove('visible');
-            hcFormVisible = false;
-            toggleBtn.textContent = isAnnotated ? '✓ Checklist Completed' : 'Hygiene Checks';
-            if (isAnnotated) toggleBtn.classList.add('annotated');
-          } else {
-            form.classList.add('visible');
-            hcFormVisible = true;
-            toggleBtn.textContent = 'Hide Checklist';
-            toggleBtn.classList.remove('annotated');
-          }
-          if (!isAnnotated) hcSaveFormState();
-        });
-
-        container.appendChild(toggleBtn);
-        container.appendChild(form);
-        sidebar.insertBefore(container, sidebar.firstChild);
-
-                if (isAnnotated) {
-          // Restore saved answers into form
-          const savedState = hcGetSavedFormState();
-          if (savedState && savedState.answers) {
-            Object.entries(savedState.answers).forEach(([name, value]) => {
-              const radio = form.querySelector(`input[name="${name}"][value="${value}"]`);
-              if (radio) radio.checked = true;
-            });
-          }
-
-          // Bind re-annotate button
-          const reAnnotateBtn = document.getElementById('hc-annotate-btn');
-          if (reAnnotateBtn) {
-            const totalQ = hcBuildFormHTML(false).totalQuestions;
-            reAnnotateBtn.addEventListener('click', () => {
-              hcSubmitChecklist(totalQ);
-            });
-
-            // Auto-save on radio change
-            form.addEventListener('change', (e) => {
-              if (e.target.type === 'radio') {
-                hcSaveFormState();
-              }
-            });
-          }
-        } else {
-          const annotateBtn = document.getElementById('hc-annotate-btn');
-          if (annotateBtn) {
-            const totalQuestions = hcBuildFormHTML(false).totalQuestions;
-            annotateBtn.addEventListener('click', () => {
-              hcSubmitChecklist(totalQuestions);
-            });
-          }
-
-          // Restore saved state
-          hcRestoreFormState();
-
-          // Auto-save on every radio change
           form.addEventListener('change', (e) => {
             if (e.target.type === 'radio') {
               hcSaveFormState();
             }
           });
         }
-      }
-
-      function hcSubmitChecklist(totalQuestions) {
-        const statusEl = document.getElementById('hc-status');
-
-        for (let i = 1; i <= totalQuestions; i++) {
-          const selected = document.querySelector(`input[name="hc-q${i}"]:checked`);
-          if (!selected) {
-            if (statusEl) {
-              statusEl.textContent = `Please answer all questions (question ${i} is unanswered)`;
-              statusEl.className = 'hc-status-msg error';
-            }
-            const unansweredQ = document.querySelector(`input[name="hc-q${i}"]`);
-            if (unansweredQ) {
-              unansweredQ.closest('.hc-question')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
-            return;
-          }
+      } else {
+        const annotateBtn = document.getElementById('hc-annotate-btn');
+        if (annotateBtn) {
+          const totalQuestions = hcBuildFormHTML(false).totalQuestions;
+          annotateBtn.addEventListener('click', () => {
+            hcSubmitChecklist(totalQuestions);
+          });
         }
 
-        let output = 'ILAC Investigation Checklist:\n\n';
-          let questionIndex = 0;
+        hcRestoreFormState();
 
-          HC_SECTIONS.forEach(section => {
-              output += `[${section.title}]\n`;
-              section.questions.forEach(q => {
-                  questionIndex++;
-                  const sel = document.querySelector(`input[name="hc-q${questionIndex}"]:checked`);
-                  // Strip *bold* markers for plain text annotation
-                  const plainQuestion = q.replace(/\*([^*]+)\*/g, '$1');
-                  output += `${questionIndex}) ${plainQuestion} — ${sel.value}\n`;
-              });
-              output += '\n';
-          });
+        form.addEventListener('change', (e) => {
+          if (e.target.type === 'radio') {
+            hcSaveFormState();
+          }
+        });
+      }
+    }
 
-        // Save answers before clearing form state
-        hcSaveFormState();
+    function hcSubmitChecklist(totalQuestions) {
+      const statusEl = document.getElementById('hc-status');
 
-        navigator.clipboard.writeText(output).then(() => {
-                    const annotateKatBtn = document.querySelector('kat-button[label="Annotate"]');
-          if (annotateKatBtn) {
-            annotateKatBtn.click();
+      for (let i = 1; i <= totalQuestions; i++) {
+        const selected = document.querySelector(`input[name="hc-q${i}"]:checked`);
+        if (!selected) {
+          if (statusEl) {
+            statusEl.textContent = `Please answer all questions (question ${i} is unanswered)`;
+            statusEl.className = 'hc-status-msg error';
+          }
+          const unansweredQ = document.querySelector(`input[name="hc-q${i}"]`);
+          if (unansweredQ) {
+            unansweredQ.closest('.hc-question')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+          return;
+        }
+      }
 
-            // Poll for textarea to appear instead of fixed timeout
-            let pollAttempts = 0;
-            const maxPollAttempts = 30; // 30 * 200ms = 6 seconds max wait
+      let output = 'ILAC Investigation Checklist:\n\n';
+      let questionIndex = 0;
 
-            const pollForTextarea = setInterval(() => {
-              pollAttempts++;
+      HC_SECTIONS.forEach(section => {
+        output += `[${section.title}]\n`;
+        section.questions.forEach(q => {
+          questionIndex++;
+          const sel = document.querySelector(`input[name="hc-q${questionIndex}"]:checked`);
+          const plainQuestion = q.replace(/\*([^*]+)\*/g, '$1');
+          output += `${questionIndex}) ${plainQuestion} — ${sel.value}\n`;
+        });
+        output += '\n';
+      });
 
-              let area = document.querySelector('kat-textarea[label="Annotation"] textarea')
-                      || document.getElementById('katal-id-17');
+      hcSaveFormState();
 
-              // Also try finding any visible textarea in the annotation section
-              if (!area) {
-                const allTextareas = document.querySelectorAll('textarea');
-                for (const ta of allTextareas) {
-                  if (ta.offsetParent !== null && ta.closest('[data-test="modal-parent"]')) {
-                    area = ta;
-                    break;
-                  }
+      navigator.clipboard.writeText(output).then(() => {
+        const annotateKatBtn = document.querySelector('kat-button[label="Annotate"]');
+        if (annotateKatBtn) {
+          annotateKatBtn.click();
+
+          let pollAttempts = 0;
+          const maxPollAttempts = 30;
+
+          const pollForTextarea = setInterval(() => {
+            pollAttempts++;
+
+            let area = document.querySelector('kat-textarea[label="Annotation"] textarea')
+                || document.getElementById('katal-id-17');
+
+            if (!area) {
+              const allTextareas = document.querySelectorAll('textarea');
+              for (const ta of allTextareas) {
+                if (ta.offsetParent !== null && ta.closest('[data-test="modal-parent"]')) {
+                  area = ta;
+                  break;
                 }
               }
+            }
 
-              const saveBtn = document.querySelector('kat-button[label="Save annotation"] button');
+            const saveBtn = document.querySelector('kat-button[label="Save annotation"] button');
 
-              if (area && saveBtn) {
-                clearInterval(pollForTextarea);
+            if (area && saveBtn) {
+              clearInterval(pollForTextarea);
 
-                // Small delay to ensure textarea is fully ready
-                setTimeout(() => {
-                  const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
-                  if (nativeSetter) {
-                    nativeSetter.call(area, output);
-                  } else {
-                    area.value = output;
-                  }
+              setTimeout(() => {
+                const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+                if (nativeSetter) {
+                  nativeSetter.call(area, output);
+                } else {
+                  area.value = output;
+                }
+                area.dispatchEvent(new Event('input', { bubbles: true }));
+                area.dispatchEvent(new Event('change', { bubbles: true }));
+                area.dispatchEvent(new Event('blur', { bubbles: true }));
+
+                if (!area.value || area.value.length === 0) {
+                  area.focus();
+                  area.value = output;
                   area.dispatchEvent(new Event('input', { bubbles: true }));
-                  area.dispatchEvent(new Event('change', { bubbles: true }));
-                  area.dispatchEvent(new Event('blur', { bubbles: true }));
+                }
 
-                  // Double-check value was set
-                  if (!area.value || area.value.length === 0) {
-                    area.focus();
-                    area.value = output;
-                    area.dispatchEvent(new Event('input', { bubbles: true }));
-                  }
-
-                  saveBtn.click();
+                saveBtn.click();
 
                 hcSetAnnotationForCase(hcCaseId, true);
                 hcUnblockAllButtons();
@@ -949,13 +996,11 @@
                   toggleBtn.classList.add('annotated');
                 }
 
-                // Rebuild form as read-only
                 const form = document.getElementById('hc-checklist-form');
                 if (form) {
                   const completed = hcBuildCompletedForm();
                   if (completed) {
                     form.innerHTML = completed.formHtml;
-                    // Restore answers into read-only form
                     const savedState = hcGetSavedFormState();
                     if (savedState && savedState.answers) {
                       Object.entries(savedState.answers).forEach(([name, value]) => {
@@ -968,7 +1013,6 @@
                   hcFormVisible = false;
                 }
 
-                // Re-bind toggle for completed state
                 if (toggleBtn) {
                   const newToggle = toggleBtn.cloneNode(true);
                   toggleBtn.parentNode.replaceChild(newToggle, toggleBtn);
@@ -989,183 +1033,169 @@
                   });
                 }
               }, 100);
-              }
-
-              if (pollAttempts >= maxPollAttempts) {
-                clearInterval(pollForTextarea);
-
-                hcSetAnnotationForCase(hcCaseId, true);
-                hcUnblockAllButtons();
-
-                const toggleBtn = document.getElementById('hc-toggle-btn');
-                if (toggleBtn) {
-                  toggleBtn.textContent = '✓ Checklist Completed';
-                  toggleBtn.classList.add('annotated');
-                }
-
-                if (statusEl) {
-                  statusEl.textContent = '✓ Copied to clipboard! (Annotate manually — textarea not found)';
-                  statusEl.className = 'hc-status-msg success';
-                }
-              }
-            }, 200);
-
-          } else {
-            hcSetAnnotationForCase(hcCaseId, true);
-            hcUnblockAllButtons();
-
-            const toggleBtn = document.getElementById('hc-toggle-btn');
-            if (toggleBtn) {
-              toggleBtn.textContent = '✓ Checklist Completed';
-              toggleBtn.classList.add('annotated');
             }
 
-            if (statusEl) {
-              statusEl.textContent = '✓ Copied to clipboard! Annotate button not found.';
-              statusEl.className = 'hc-status-msg success';
-            }
-          }
-        }).catch(() => {
-          if (statusEl) {
-            statusEl.textContent = 'Failed to copy to clipboard';
-            statusEl.className = 'hc-status-msg error';
-          }
-        });
-      }
+            if (pollAttempts >= maxPollAttempts) {
+              clearInterval(pollForTextarea);
 
-      document.addEventListener('keydown', event => {
-        if (event.altKey && event.key.toLowerCase() === 'y' &&
-            !['INPUT','TEXTAREA'].includes(document.activeElement.tagName)) {
-          event.preventDefault();
+              hcSetAnnotationForCase(hcCaseId, true);
+              hcUnblockAllButtons();
+
+              const toggleBtn = document.getElementById('hc-toggle-btn');
+              if (toggleBtn) {
+                toggleBtn.textContent = '✓ Checklist Completed';
+                toggleBtn.classList.add('annotated');
+              }
+
+              if (statusEl) {
+                statusEl.textContent = '✓ Copied to clipboard! (Annotate manually — textarea not found)';
+                statusEl.className = 'hc-status-msg success';
+              }
+            }
+          }, 200);
+
+        } else {
+          hcSetAnnotationForCase(hcCaseId, true);
+          hcUnblockAllButtons();
+
           const toggleBtn = document.getElementById('hc-toggle-btn');
-          if (toggleBtn) toggleBtn.click();
+          if (toggleBtn) {
+            toggleBtn.textContent = '✓ Checklist Completed';
+            toggleBtn.classList.add('annotated');
+          }
+
+          if (statusEl) {
+            statusEl.textContent = '✓ Copied to clipboard! Annotate button not found.';
+            statusEl.className = 'hc-status-msg success';
+          }
+        }
+      }).catch(() => {
+        if (statusEl) {
+          statusEl.textContent = 'Failed to copy to clipboard';
+          statusEl.className = 'hc-status-msg error';
         }
       });
-
-      setTimeout(() => {
-        hcInjectSidebar();
-        hcFindAndBlockButtons();
-      }, 2000);
-
-      const hcButtonObserver = new MutationObserver(() => {
-        if (!hcIsCaseAnnotated(hcCaseId)) {
-          hcFindAndBlockButtons();
-        }
-      });
-      hcButtonObserver.observe(document.body, { childList: true, subtree: true });
     }
 
-    // =============================================
-    // BEACON 2.0 PAGE (Harmony)
-    // =============================================
+    document.addEventListener('keydown', event => {
+      if (event.altKey && event.key.toLowerCase() === 'y' &&
+          !['INPUT','TEXTAREA'].includes(document.activeElement.tagName)) {
+        event.preventDefault();
+        const toggleBtn = document.getElementById('hc-toggle-btn');
+        if (toggleBtn) toggleBtn.click();
+      }
+    });
 
-    if (/console\.harmony\.a2z\.com/.test(location.href)) {
+    setTimeout(() => {
+      hcInjectSidebar();
+      hcFindAndBlockButtons();
+    }, 2000);
 
-      let hcBeaconCaseId = null;
+    const hcButtonObserver = new MutationObserver(() => {
+      if (!hcIsCaseAnnotated(hcCaseId)) {
+        hcFindAndBlockButtons();
+      }
+    });
+    hcButtonObserver.observe(document.body, { childList: true, subtree: true });
+  }
 
-      function hcGetCaseIdFromBeacon() {
-        const urlMatch = location.href.match(/caseId=([^&#]+)/);
-        if (urlMatch) return urlMatch[1];
+  // ===================
+  // 8. BEACON 2.0 PAGE LOGIC (UPDATED)
+  // ===================
+  if (/console\.harmony\.a2z\.com/.test(location.href)) {
+    let hcBeaconCaseId = null;
 
-        const pageText = document.body.innerText || '';
-        const caseMatch = pageText.match(/Case\s*(?:ID)?:?\s*(\d{10,})/i);
-        if (caseMatch) return caseMatch[1];
+    function hcGetCaseIdFromBeacon() {
+      const urlMatch = location.href.match(/caseId=([^&#]+)/);
+      if (urlMatch) return normalizeCaseId(urlMatch[1]);
 
-        return null;
+      const pageText = document.body.innerText || '';
+      const caseMatch = pageText.match(/Case\s*(?:ID)?:?\s*(\d{10,})/i);
+      if (caseMatch) return normalizeCaseId(caseMatch[1]);
+
+      return null;
+    }
+
+    function hcUnblockBeaconButtons() {
+      document.querySelectorAll('.hc-blocked-btn').forEach(btn => {
+        btn.classList.remove('hc-blocked-btn');
+        btn.removeAttribute('data-hc-blocked');
+      });
+      document.querySelectorAll('.hc-block-prompt').forEach(p => p.remove());
+    }
+
+    function hcBlockBeaconButtons() {
+      hcBeaconCaseId = hcGetCaseIdFromBeacon();
+      console.log(`[HygieneChecks] Beacon Case ID:`, hcBeaconCaseId);
+
+      if (!hcBeaconCaseId) {
+        console.error('[HygieneChecks] Failed to extract Beacon case ID');
+        return;
       }
 
-      function hcUnblockBeaconButtons() {
-        document.querySelectorAll('.hc-blocked-btn').forEach(btn => {
-          btn.classList.remove('hc-blocked-btn');
-          btn.removeAttribute('data-hc-blocked');
-        });
-        document.querySelectorAll('.hc-block-prompt').forEach(p => p.remove());
-      }
+      const isAnnotated = hcIsCaseAnnotated(hcBeaconCaseId);
+      console.log(`[HygieneChecks] Is ${hcBeaconCaseId} annotated?`, isAnnotated);
 
-      function hcBlockBeaconButtons() {
-        hcBeaconCaseId = hcGetCaseIdFromBeacon();
-        if (!hcBeaconCaseId) return;
-
-        if (hcIsCaseAnnotated(hcBeaconCaseId)) {
-          hcUnblockBeaconButtons();
-          return;
-        }
-
-        // Already blocked, skip
-        if (document.querySelector('.hc-blocked-btn')) return;
-
-        let foundBtn = null;
-
+      if (isAnnotated) {
+        console.log('[HygieneChecks] Unblocking Beacon buttons');
+        hcUnblockBeaconButtons();
+      } else {
+        console.log('[HygieneChecks] Blocking Beacon buttons');
         document.querySelectorAll('button, [role="button"]').forEach(btn => {
           const text = (btn.textContent || '').trim();
           if (/^submit\s*blurb$/i.test(text)) {
-            btn.classList.add('hc-blocked-btn');
-            btn.setAttribute('data-hc-blocked', 'true');
-            foundBtn = btn;
+            if (!btn.classList.contains('hc-blocked-btn')) {
+              btn.classList.add('hc-blocked-btn');
+              btn.setAttribute('data-hc-blocked', 'true');
+            }
           }
         });
 
-        if (!foundBtn) {
-          document.querySelectorAll('kat-button').forEach(katBtn => {
-            const label = (katBtn.getAttribute('label') || '').trim();
-            const text = (katBtn.textContent || '').trim();
-            if (/^submit\s*blurb$/i.test(label) || /^submit\s*blurb$/i.test(text)) {
-              katBtn.classList.add('hc-blocked-btn');
-              katBtn.setAttribute('data-hc-blocked', 'true');
-              foundBtn = katBtn;
-              const inner = katBtn.querySelector('button');
-              if (inner) {
-                inner.classList.add('hc-blocked-btn');
-                inner.setAttribute('data-hc-blocked', 'true');
-              }
+        if (!document.querySelector('.hc-block-prompt')) {
+          const blocked = document.querySelector('.hc-blocked-btn');
+          if (blocked) {
+            const container = blocked.closest('div') || blocked.parentElement;
+            if (container) {
+              const prompt = document.createElement('div');
+              prompt.className = 'hc-block-prompt';
+              prompt.textContent = 'Complete the Hygiene Checks to proceed further';
+              container.insertAdjacentElement('afterend', prompt);
+            } else {
+              blocked.insertAdjacentElement('afterend', prompt);
             }
-          });
-        }
-
-        if (foundBtn && !document.querySelector('.hc-block-prompt')) {
-          const prompt = document.createElement('div');
-          prompt.className = 'hc-block-prompt';
-          prompt.textContent = 'Complete the Hygiene Checks to proceed further';
-          const container = foundBtn.closest('div') || foundBtn.parentElement;
-          if (container) {
-            container.insertAdjacentElement('afterend', prompt);
-          } else {
-            foundBtn.insertAdjacentElement('afterend', prompt);
           }
         }
       }
-
-      const hcBeaconObserver = new MutationObserver(() => {
-        const caseId = hcGetCaseIdFromBeacon();
-        if (caseId) {
-          if (caseId !== hcBeaconCaseId) {
-            hcUnblockBeaconButtons();
-          }
-          hcBlockBeaconButtons();
-        }
-      });
-
-      setTimeout(() => {
-        hcBlockBeaconButtons();
-        hcBeaconObserver.observe(document.body, { childList: true, subtree: true });
-      }, 3000);
-
-      // Poll every 2 seconds to detect annotation from Paragon
-      setInterval(() => {
-        if (!hcBeaconCaseId) {
-          hcBeaconCaseId = hcGetCaseIdFromBeacon();
-        }
-        if (hcBeaconCaseId && hcIsCaseAnnotated(hcBeaconCaseId)) {
-          if (document.querySelector('.hc-blocked-btn') || document.querySelector('.hc-block-prompt')) {
-            console.log('[HygieneChecks] Beacon: Annotation detected, unblocking');
-            hcUnblockBeaconButtons();
-          }
-        }
-      }, 2000);
     }
 
-  } // end of isFeatureEnabled('hygieneChecks')
+    const hcBeaconObserver = new MutationObserver(() => {
+      const caseId = hcGetCaseIdFromBeacon();
+      if (caseId) {
+        if (caseId !== hcBeaconCaseId) {
+          hcUnblockBeaconButtons();
+        }
+        hcBlockBeaconButtons();
+      }
+    });
 
+    setTimeout(() => {
+      hcBlockBeaconButtons();
+      hcBeaconObserver.observe(document.body, { childList: true, subtree: true });
+    }, 3000);
+
+    setInterval(() => {
+      if (!hcBeaconCaseId) {
+        hcBeaconCaseId = hcGetCaseIdFromBeacon();
+      }
+      if (hcBeaconCaseId && hcIsCaseAnnotated(hcBeaconCaseId)) {
+        if (document.querySelector('.hc-blocked-btn') || document.querySelector('.hc-block-prompt')) {
+          console.log('[HygieneChecks] Beacon: Annotation detected, unblocking');
+          hcUnblockBeaconButtons();
+        }
+      }
+    }, 2000);
+  }
+}
 
 
 
