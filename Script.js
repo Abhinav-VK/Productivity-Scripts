@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Combined Productivity Scripts
 // @namespace   http://tampermonkey.net/
-// @version     8.4.06
+// @version     8.5.00
 // @description Combines Hygiene Checks, RCAI Expand Findings, RCAI Results Popup, Serenity ID Extractor, SANTOS Checker, Check Mapping, Open RCAI and ILAC Auto Attach with Alt+X toggle panel
 // @author      Abhinav
 // @include     https://paragon-*.amazon.com/hz/view-case?caseId=*
@@ -23,8 +23,8 @@
 // @grant       GM_getValue
 // @grant       GM_xmlhttpRequest
 // @grant       unsafeWindow
-// @updateURL   https://raw.githubusercontent.com/Abhinav-VK/Productivity-Scripts/refs/heads/main/Script.js
-// @downloadURL https://raw.githubusercontent.com/Abhinav-VK/Productivity-Scripts/refs/heads/main/Script.js
+// @updateURL   https://amazon.sharepoint.com/sites/ProductivityScripts/Shared%20Documents/Combined%20Productivity%20Scripts.user.js
+// @downloadURL https://amazon.sharepoint.com/sites/ProductivityScripts/Shared%20Documents/Combined%20Productivity%20Scripts.user.js
 // ==/UserScript==
 
 (function() {
