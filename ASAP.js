@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name              ASAP
 // @namespace         http://tampermonkey.net/
-// @version           1.1.07
+// @version           1.1.08
 // @description       Combined: Auto Peek into seller accounts, Auto Populate MID & FRD, and AUX status enforcement
 // @author            Abhinav
 // @updateURL         https://raw.githubusercontent.com/Abhinav-VK/Productivity-Scripts/refs/heads/main/ASAP.js
@@ -11,6 +11,7 @@
 // @match             https://*.amazon.com/hz/*case?caseId=*
 // @match             https://*.amazon.com/hz/view-case*
 // @match             https://*.amazon.com/ilac/view-ilac-report*
+// @match             https://beacon2.harmony.a2z.com/*
 // @match             https://sellercentral.amazon.com/fba/inbound-shipment/summary/*
 // @match             https://paragon-*.amazon.com/hz/lobby*
 // @match             https://console.harmony.a2z.com/poportal/poallitems/*
