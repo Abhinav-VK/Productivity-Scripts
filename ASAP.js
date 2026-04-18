@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name              ASAP
 // @namespace         http://tampermonkey.net/
-// @version           1.1.09
+// @version           1.1.10
 // @description       Combined: Auto Peek into seller accounts, Auto Populate MID & FRD, and AUX status enforcement
 // @author            Abhinav
 // @updateURL         https://raw.githubusercontent.com/Abhinav-VK/Productivity-Scripts/refs/heads/main/ASAP.js
@@ -1179,6 +1179,7 @@ function handleParagonPeek() {
     `);
 
     // ======================== CCP Status Detection ======================== //
+console.log('[AUX ALERT] Script loaded on:', location.href);
 
     function getCCPStatus() {
         try {
