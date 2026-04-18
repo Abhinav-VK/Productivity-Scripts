@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name              ASAP
 // @namespace         http://tampermonkey.net/
-// @version           1.1.08
+// @version           1.1.09
 // @description       Combined: Auto Peek into seller accounts, Auto Populate MID & FRD, and AUX status enforcement
 // @author            Abhinav
 // @updateURL         https://raw.githubusercontent.com/Abhinav-VK/Productivity-Scripts/refs/heads/main/ASAP.js
@@ -1389,7 +1389,8 @@ function handleParagonPeek() {
 
     // ======================== BEACON 2.0 PAGE ======================== //
 
-    if (/console\.harmony\.a2z\.com\/beacon2\//.test(location.href)) {
+    if (/beacon2\.harmony\.a2z\.com\/beacon2\//.test(location.href)) {
+
 
         function showBeaconAlert(status) {
             showAuxModal(
