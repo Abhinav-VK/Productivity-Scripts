@@ -1,7 +1,8 @@
+
 // ==UserScript==
 // @name              ASAP
 // @namespace         http://tampermonkey.net/
-// @version           1.1.10
+// @version           1.1.11
 // @description       Combined: Auto Peek into seller accounts, Auto Populate MID & FRD, and AUX status enforcement
 // @author            Abhinav
 // @updateURL         https://raw.githubusercontent.com/Abhinav-VK/Productivity-Scripts/refs/heads/main/ASAP.js
@@ -72,7 +73,10 @@
     const CA_FCS = ["YOW1","YUL2","YVR2","YVR3","YVR4","YYC1","YYZ1","YYZ2","YYZ3","YYZ4","YYZ7","YYZ9"];
     const MX_FCS = ["MEX1","MEX2","MEX3"];
 
-    const tabCreatedAt = Date.now(); // Add this BEFORE GM_openInTab
+    // 🔧 FIX #1: Removed `const tabCreatedAt = Date.now();` from here.
+    // It was being set at script load time, causing incorrect timeout calculations.
+    // Moved inside startPeekProcess() where the tab is actually opened.
+
     function getMarketplaceFromFc(fc) {
         if (US_FCS.includes(fc)) return "amazon.com";
         if (CA_FCS.includes(fc)) return "amazon.ca";
@@ -99,537 +103,407 @@
 
     // ========================== Handle Seller Central ==========================
 
-function handleSellerCentral() {
-    const currentUrl = document.URL;
-    const lastAttempt = JSON.parse(GM_getValue('peekAttempt', '{}'));
+    function handleSellerCentral() {
+        const currentUrl = document.URL;
+        const lastAttempt = JSON.parse(GM_getValue('peekAttempt', '{}'));
 
-    if (lastAttempt.url === currentUrl && lastAttempt.time > Date.now() - 60000) {
-        console.log('[Auto Peek] Already attempted for this page. Skipping.');
-        return;
-    }
-
-    const refreshKey = 'peekRefreshCount_' + currentUrl.replace(/[^a-zA-Z0-9]/g, '').slice(-30);
-    const refreshCount = parseInt(GM_getValue(refreshKey, '0'));
-
-    if (refreshCount >= 2) {
-        console.log('[Auto Peek] Max refresh attempts reached. Stopping.');
-        GM_setValue(refreshKey, '0');
-        return;
-    }
-
-    const check404 = setInterval(() => {
-        const pageText = document.body?.innerText || '';
-        if (pageText.includes('Shipment does not exist') || pageText.includes('404')) {
-            clearInterval(check404);
-            clearTimeout(safetyTimeout);
-            console.log('[Auto Peek] 404 detected on SellerCentral.');
-
-            const peeked = getPeeked();
-            const freshPeek = peeked.peekTimestamp && (Date.now() - peeked.peekTimestamp) < 30000;
-
-            if (freshPeek) {
-                console.log('[Auto Peek] Fresh peek detected. Waiting for cookies, then refreshing...');
-                GM_setValue(refreshKey, String(refreshCount + 1));
-                setTimeout(() => location.reload(), 3000);
-            } else {
-                console.log('[Auto Peek] No recent peek. Please peek from Paragon first.');
-                GM_setValue('peekAttempt', JSON.stringify({ url: currentUrl, time: Date.now() }));
-            }
+        if (lastAttempt.url === currentUrl && lastAttempt.time > Date.now() - 60000) {
+            console.log('[Auto Peek] Already attempted for this page. Skipping.');
+            return;
         }
-    }, 500);
 
-    const safetyTimeout = setTimeout(() => {
-        clearInterval(check404);
-        GM_setValue(refreshKey, '0');
-        console.log('[Auto Peek] No 404 detected. Page loaded normally.');
-    }, 15000);
-}
+        const refreshKey = 'peekRefreshCount_' + currentUrl.replace(/[^a-zA-Z0-9]/g, '').slice(-30);
+        const refreshCount = parseInt(GM_getValue(refreshKey, '0'));
+
+        if (refreshCount >= 2) {
+            console.log('[Auto Peek] Max refresh attempts reached. Stopping.');
+            GM_setValue(refreshKey, '0');
+            return;
+        }
+
+        const check404 = setInterval(() => {
+            const pageText = document.body?.innerText || '';
+            if (pageText.includes('Shipment does not exist') || pageText.includes('404')) {
+                clearInterval(check404);
+                clearTimeout(safetyTimeout);
+                console.log('[Auto Peek] 404 detected on SellerCentral.');
+
+                const peeked = getPeeked();
+                const freshPeek = peeked.peekTimestamp && (Date.now() - peeked.peekTimestamp) < 30000;
+
+                if (freshPeek) {
+                    console.log('[Auto Peek] Fresh peek detected. Waiting for cookies, then refreshing...');
+                    GM_setValue(refreshKey, String(refreshCount + 1));
+                    setTimeout(() => location.reload(), 3000);
+                } else {
+                    console.log('[Auto Peek] No recent peek. Please peek from Paragon first.');
+                    GM_setValue('peekAttempt', JSON.stringify({ url: currentUrl, time: Date.now() }));
+                }
+            }
+        }, 500);
+
+        const safetyTimeout = setTimeout(() => {
+            clearInterval(check404);
+            GM_setValue(refreshKey, '0');
+            console.log('[Auto Peek] No 404 detected. Page loaded normally.');
+        }, 15000);
+    }
 
     // ========================== Handle Paragon (Peek) ==========================
 
-function handleParagonPeek() {
-    let clicked = false;
-    const ONE_HOUR = 60 * 60 * 1000;
-    const caseId = new URLSearchParams(window.location.search).get("caseId");
+    function handleParagonPeek() {
+        let clicked = false;
+        const ONE_HOUR = 60 * 60 * 1000;
+        const caseId = new URLSearchParams(window.location.search).get("caseId");
 
-    // -------------------- Helper: Get Current User --------------------
+        function getCurrentUser() {
+            try {
+                const userDetails = unsafeWindow?.userDetails || window?.userDetails;
+                if (userDetails?.agentLogin) return userDetails.agentLogin;
+            } catch (e) {}
+            return null;
+        }
 
-    function getCurrentUser() {
-        try {
-            const userDetails = unsafeWindow?.userDetails || window?.userDetails;
-            if (userDetails?.agentLogin) return userDetails.agentLogin;
-        } catch (e) {}
-        return null;
-    }
+        function getCaseOwner() {
+            try {
+                const caseData = (unsafeWindow?.deprecated_getViewCaseData || window?.deprecated_getViewCaseData)?.();
+                if (caseData?.caseDetails?.owner) {
+                    console.log('[Auto Peek] Owner from caseDetails:', caseData.caseDetails.owner);
+                    return caseData.caseDetails.owner;
+                }
+            } catch (e) {}
 
-    // -------------------- Helper: Get Case Owner --------------------
-
-    function getCaseOwner() {
-        try {
-            const caseData = (unsafeWindow?.deprecated_getViewCaseData || window?.deprecated_getViewCaseData)?.();
-            if (caseData?.caseDetails?.owner) {
-                console.log('[Auto Peek] Owner from caseDetails:', caseData.caseDetails.owner);
-                return caseData.caseDetails.owner;
+            const rows = document.querySelectorAll('kat-table-body kat-table-row');
+            for (const row of rows) {
+                const cells = row.querySelectorAll('kat-table-cell');
+                if (cells.length >= 2) {
+                    const label = cells[0]?.textContent?.trim();
+                    if (label === 'Owner' || label === 'Case Owner' || label === 'Owner:' || label === 'Case Owner:') {
+                        const owner = cells[1]?.textContent?.trim();
+                        if (owner && owner.length > 0 && owner.length < 30) {
+                            console.log('[Auto Peek] Owner from DOM:', owner);
+                            return owner;
+                        }
+                    }
+                }
             }
-        } catch (e) {}
 
-        const rows = document.querySelectorAll('kat-table-body kat-table-row');
-        for (const row of rows) {
-            const cells = row.querySelectorAll('kat-table-cell');
-            if (cells.length >= 2) {
-                const label = cells[0]?.textContent?.trim();
-                if (label === 'Owner' || label === 'Case Owner' || label === 'Owner:' || label === 'Case Owner:') {
-                    const owner = cells[1]?.textContent?.trim();
-                    if (owner && owner.length > 0 && owner.length < 30) {
-                        console.log('[Auto Peek] Owner from DOM:', owner);
+            const allCells = document.querySelectorAll('kat-table-cell, td, th');
+            for (let i = 0; i < allCells.length - 1; i++) {
+                const text = allCells[i].textContent.trim();
+                if (text === 'Owner' || text === 'Case Owner' || text === 'Owner:' || text === 'Case Owner:') {
+                    const nextCell = allCells[i + 1];
+                    const owner = nextCell?.textContent?.trim();
+                    if (owner && owner.length > 0 && owner.length < 30 && /^[a-z0-9_-]+$/i.test(owner)) {
+                        console.log('[Auto Peek] Owner from cells:', owner);
                         return owner;
                     }
                 }
             }
+
+            return null;
         }
 
-        const allCells = document.querySelectorAll('kat-table-cell, td, th');
-        for (let i = 0; i < allCells.length - 1; i++) {
-            const text = allCells[i].textContent.trim();
-            if (text === 'Owner' || text === 'Case Owner' || text === 'Owner:' || text === 'Case Owner:') {
-                const nextCell = allCells[i + 1];
-                const owner = nextCell?.textContent?.trim();
-                if (owner && owner.length > 0 && owner.length < 30 && /^[a-z0-9_-]+$/i.test(owner)) {
-                    console.log('[Auto Peek] Owner from cells:', owner);
-                    return owner;
+        function getCaseStatus() {
+            try {
+                const caseData = (unsafeWindow?.deprecated_getViewCaseData || window?.deprecated_getViewCaseData)?.();
+                if (caseData?.caseDetails?.status) {
+                    console.log('[Auto Peek] Status from caseDetails:', caseData.caseDetails.status);
+                    return caseData.caseDetails.status;
+                }
+            } catch (e) {}
+
+            const rows = document.querySelectorAll('kat-table-body kat-table-row');
+            for (const row of rows) {
+                const cells = row.querySelectorAll('kat-table-cell');
+                if (cells.length >= 2) {
+                    const label = cells[0]?.textContent?.trim();
+                    if (label === 'Status' || label === 'Case Status' || label === 'Status:' || label === 'Case Status:') {
+                        const status = cells[1]?.textContent?.trim();
+                        if (status && status.length > 0) {
+                            console.log('[Auto Peek] Status from DOM:', status);
+                            return status;
+                        }
+                    }
                 }
             }
-        }
 
-        return null;
-    }
-
-    // -------------------- Helper: Get Case Status --------------------
-
-    function getCaseStatus() {
-        try {
-            const caseData = (unsafeWindow?.deprecated_getViewCaseData || window?.deprecated_getViewCaseData)?.();
-            if (caseData?.caseDetails?.status) {
-                console.log('[Auto Peek] Status from caseDetails:', caseData.caseDetails.status);
-                return caseData.caseDetails.status;
-            }
-        } catch (e) {}
-
-        const rows = document.querySelectorAll('kat-table-body kat-table-row');
-        for (const row of rows) {
-            const cells = row.querySelectorAll('kat-table-cell');
-            if (cells.length >= 2) {
-                const label = cells[0]?.textContent?.trim();
-                if (label === 'Status' || label === 'Case Status' || label === 'Status:' || label === 'Case Status:') {
-                    const status = cells[1]?.textContent?.trim();
-                    if (status && status.length > 0) {
-                        console.log('[Auto Peek] Status from DOM:', status);
+            const allCells = document.querySelectorAll('kat-table-cell, td, th');
+            for (let i = 0; i < allCells.length - 1; i++) {
+                const text = allCells[i].textContent.trim();
+                if (text === 'Status' || text === 'Case Status' || text === 'Status:' || text === 'Case Status:') {
+                    const nextCell = allCells[i + 1];
+                    const status = nextCell?.textContent?.trim();
+                    if (status && status.length > 0 && status.length < 50) {
+                        console.log('[Auto Peek] Status from cells:', status);
                         return status;
                     }
                 }
             }
-        }
 
-        const allCells = document.querySelectorAll('kat-table-cell, td, th');
-        for (let i = 0; i < allCells.length - 1; i++) {
-            const text = allCells[i].textContent.trim();
-            if (text === 'Status' || text === 'Case Status' || text === 'Status:' || text === 'Case Status:') {
-                const nextCell = allCells[i + 1];
-                const status = nextCell?.textContent?.trim();
-                if (status && status.length > 0 && status.length < 50) {
-                    console.log('[Auto Peek] Status from cells:', status);
-                    return status;
+            const statusElements = document.querySelectorAll('[class*="status"], [class*="Status"], [data-status]');
+            for (const el of statusElements) {
+                const text = el.textContent?.trim();
+                if (text && (text.toLowerCase().includes('work in progress') ||
+                             text.toLowerCase().includes('pending') ||
+                             text.toLowerCase().includes('resolved') ||
+                             text.toLowerCase().includes('closed'))) {
+                    console.log('[Auto Peek] Status from badge:', text);
+                    return text;
                 }
             }
+
+            return null;
         }
 
-        const statusElements = document.querySelectorAll('[class*="status"], [class*="Status"], [data-status]');
-        for (const el of statusElements) {
-            const text = el.textContent?.trim();
-            if (text && (text.toLowerCase().includes('work in progress') ||
-                         text.toLowerCase().includes('pending') ||
-                         text.toLowerCase().includes('resolved') ||
-                         text.toLowerCase().includes('closed'))) {
-                console.log('[Auto Peek] Status from badge:', text);
-                return text;
+        function getPeekHistory() {
+            try {
+                return JSON.parse(GM_getValue('peekHistory', '{}'));
+            } catch (e) {
+                return {};
             }
         }
 
-        return null;
-    }
+        function cleanPeekHistory() {
+            const history = getPeekHistory();
+            const now = Date.now();
+            let cleaned = false;
 
-    // -------------------- Helper: Peek History (Case ID only) --------------------
-
-    function getPeekHistory() {
-        try {
-            return JSON.parse(GM_getValue('peekHistory', '{}'));
-        } catch (e) {
-            return {};
-        }
-    }
-
-    function cleanPeekHistory() {
-        const history = getPeekHistory();
-        const now = Date.now();
-        let cleaned = false;
-
-        for (const key in history) {
-            if ((now - history[key].peekTimestamp) > ONE_HOUR) {
-                delete history[key];
-                cleaned = true;
+            for (const key in history) {
+                if ((now - history[key].peekTimestamp) > ONE_HOUR) {
+                    delete history[key];
+                    cleaned = true;
+                }
             }
+
+            if (cleaned) {
+                GM_setValue('peekHistory', JSON.stringify(history));
+            }
+
+            return history;
         }
 
-        if (cleaned) {
+        function wasPeekedRecently() {
+            if (!caseId) return false;
+
+            const history = cleanPeekHistory();
+            const entry = history[caseId];
+
+            if (entry && (Date.now() - entry.peekTimestamp) < ONE_HOUR) {
+                console.log('[Auto Peek] ✅ Case', caseId, 'was peeked', Math.round((Date.now() - entry.peekTimestamp) / 60000), 'min ago. Skipping.');
+                return true;
+            }
+
+            return false;
+        }
+
+        function savePeekRecord() {
+            const history = cleanPeekHistory();
+
+            history[caseId] = {
+                peekTimestamp: Date.now()
+            };
+
             GM_setValue('peekHistory', JSON.stringify(history));
+            console.log('[Auto Peek] 💾 Peek recorded for case:', caseId);
+            console.log('[Auto Peek] 📊 Total entries:', Object.keys(history).length);
         }
 
-        return history;
-    }
+        let dataCheckCount = 0;
+        const dataCheckMax = 120;
 
-    function wasPeekedRecently() {
-        if (!caseId) return false;
+        const waitForData = setInterval(() => {
+            dataCheckCount++;
 
-        const history = cleanPeekHistory();
-        const entry = history[caseId];
-
-        if (entry && (Date.now() - entry.peekTimestamp) < ONE_HOUR) {
-            console.log('[Auto Peek] ✅ Case', caseId, 'was peeked', Math.round((Date.now() - entry.peekTimestamp) / 60000), 'min ago. Skipping.');
-            return true;
-        }
-
-        return false;
-    }
-
-    function savePeekRecord() {
-        const history = cleanPeekHistory();
-
-        history[caseId] = {
-            peekTimestamp: Date.now()
-        };
-
-        GM_setValue('peekHistory', JSON.stringify(history));
-        console.log('[Auto Peek] 💾 Peek recorded for case:', caseId);
-        console.log('[Auto Peek] 📊 Total entries:', Object.keys(history).length);
-    }
-
-    // -------------------- Main: Wait for Page Data --------------------
-
-    let dataCheckCount = 0;
-    const dataCheckMax = 120;
-
-    const waitForData = setInterval(() => {
-        dataCheckCount++;
-
-        if (dataCheckCount >= dataCheckMax) {
-            clearInterval(waitForData);
-            console.log('[Auto Peek] ⏱️ Timed out waiting for page data.');
-            return;
-        }
-
-        const currentUser = getCurrentUser();
-        const caseOwner = getCaseOwner();
-        const caseStatus = getCaseStatus();
-
-        if (!currentUser || !caseOwner) {
-            if (dataCheckCount % 20 === 0) {
-                console.log(`[Auto Peek] ⏳ Waiting for page data... (attempt ${dataCheckCount}) user:`, currentUser, 'owner:', caseOwner);
+            if (dataCheckCount >= dataCheckMax) {
+                clearInterval(waitForData);
+                console.log('[Auto Peek] ⏱️ Timed out waiting for page data.');
+                return;
             }
-            return;
-        }
 
-        clearInterval(waitForData);
+            const currentUser = getCurrentUser();
+            const caseOwner = getCaseOwner();
+            const caseStatus = getCaseStatus();
 
-        console.log('[Auto Peek] 📋 Current user:', currentUser);
-        console.log('[Auto Peek] 📋 Case owner:', caseOwner);
-        console.log('[Auto Peek] 📋 Case status:', caseStatus);
-        console.log('[Auto Peek] 📋 Case ID:', caseId);
+            if (!currentUser || !caseOwner) {
+                if (dataCheckCount % 20 === 0) {
+                    console.log(`[Auto Peek] ⏳ Waiting for page data... (attempt ${dataCheckCount}) user:`, currentUser, 'owner:', caseOwner);
+                }
+                return;
+            }
 
-        // Check 1: User must be the owner
-        if (currentUser !== caseOwner) {
-            console.log('[Auto Peek] ⏭️ Skipping — not the case owner.');
-            console.log(`[Auto Peek]    Owner: "${caseOwner}", User: "${currentUser}"`);
-            return;
-        }
-        console.log('[Auto Peek] ✅ User owns this case.');
+            clearInterval(waitForData);
 
-        // Check 2: Status must be Work in Progress
-        if (!caseStatus) {
-            console.log('[Auto Peek] ⚠️ Could not determine case status. Proceeding anyway...');
-        } else if (!caseStatus.toLowerCase().replace(/-/g, ' ').includes('work in progress')) {
-            console.log('[Auto Peek] ⏭️ Skipping — case status is not "Work in Progress".');
-            console.log(`[Auto Peek]    Status: "${caseStatus}"`);
-            return;
-        } else {
-            console.log('[Auto Peek] ✅ Case is Work in Progress.');
-        }
+            console.log('[Auto Peek] 📋 Current user:', currentUser);
+            console.log('[Auto Peek] 📋 Case owner:', caseOwner);
+            console.log('[Auto Peek] 📋 Case status:', caseStatus);
+            console.log('[Auto Peek] 📋 Case ID:', caseId);
 
-        // Check 3: Already peeked this case within 1 hour
-        if (wasPeekedRecently()) {
-            return;
-        }
+            if (currentUser !== caseOwner) {
+                console.log('[Auto Peek] ⏭️ Skipping — not the case owner.');
+                console.log(`[Auto Peek]    Owner: "${caseOwner}", User: "${currentUser}"`);
+                return;
+            }
+            console.log('[Auto Peek] ✅ User owns this case.');
 
-        console.log('[Auto Peek] 🔍 Case not peeked recently. Starting peek process...');
-        startPeekProcess();
+            if (!caseStatus) {
+                console.log('[Auto Peek] ⚠️ Could not determine case status. Proceeding anyway...');
+            } else if (!caseStatus.toLowerCase().replace(/-/g, ' ').includes('work in progress')) {
+                console.log('[Auto Peek] ⏭️ Skipping — case status is not "Work in Progress".');
+                console.log(`[Auto Peek]    Status: "${caseStatus}"`);
+                return;
+            } else {
+                console.log('[Auto Peek] ✅ Case is Work in Progress.');
+            }
 
-    }, 500);
+            if (wasPeekedRecently()) {
+                return;
+            }
 
-    // -------------------- Main: Start Peek Process --------------------
+            console.log('[Auto Peek] 🔍 Case not peeked recently. Starting peek process...');
+            startPeekProcess();
 
-    function startPeekProcess() {
+        }, 500);
 
-        function tryClick() {
-            if (clicked) return;
+        // -------------------- Start Peek Process --------------------
 
-            const katButton = document.querySelector('kat-button[label="View seller account"]');
-            if (!katButton) return;
+        function startPeekProcess() {
 
-            const button =
-                katButton.shadowRoot?.querySelector('button') ||
-                katButton.querySelector('button');
+            function tryClick() {
+                if (clicked) return;
 
-            if (!button) return;
+                const katButton = document.querySelector('kat-button[label="View seller account"]');
+                if (!katButton) return;
 
-            clicked = true;
-            observer.disconnect();
-            console.log('[Auto Peek] 🎯 Button found. Peeking silently for case:', caseId);
+                const button =
+                    katButton.shadowRoot?.querySelector('button') ||
+                    katButton.querySelector('button');
+
+                if (!button) return;
+
+                clicked = true;
+                observer.disconnect();
+                console.log('[Auto Peek] 🎯 Button found. Peeking silently for case:', caseId);
+
+                setTimeout(() => {
+                    const originalOpen = unsafeWindow.open;
+
+                    // 🔧 FIX #1: tabCreatedAt now set HERE when the tab is actually opened,
+                    // not at script load time. This ensures the 20s timeout is accurate.
+                    const tabCreatedAt = Date.now();
+
+                    unsafeWindow.open = function (url, target, features) {
+                        if (url) {
+                            console.log('[Auto Peek] 🔗 Intercepted SC URL:', url);
+
+                            console.log('[Auto Peek] 🌐 Opening SC in background to set cookies...');
+                            const scTab = GM_openInTab(url, { active: false, insert: true });
+
+                            let scTabLoaded = false;
+
+                            if (scTab && scTab.window) {
+                                try {
+                                    scTab.window.addEventListener('load', () => {
+                                        if (scTabLoaded) return;
+                                        scTabLoaded = true;
+                                        console.log('[Auto Peek] ✅ SC page loaded. Closing tab...');
+                                        scTab.close();
+                                        clearInterval(closeTimer);
+                                    });
+                                } catch (e) {
+                                    console.warn('[Auto Peek] ⚠️ Could not attach load listener:', e);
+                                }
+                            }
+
+                            const closeTimer = setInterval(() => {
+                                try {
+                                    if (scTab.closed) {
+                                        clearInterval(closeTimer);
+                                        console.log('[Auto Peek] 🔒 SC tab already closed.');
+                                        return;
+                                    }
+
+                                    if (scTabLoaded) {
+                                        scTab.close();
+                                        clearInterval(closeTimer);
+                                        console.log('[Auto Peek] 🔒 SC tab closed (load confirmed).');
+                                        return;
+                                    }
+
+                                    // 🔧 FIX #1 (cont.): Now correctly measures elapsed time
+                                    // from when the tab was opened, not script load.
+                                    const elapsed = Date.now() - tabCreatedAt;
+                                    if (elapsed > 20000) {
+                                        scTab.close();
+                                        clearInterval(closeTimer);
+                                        console.log('[Auto Peek] 🔒 SC tab closed (20s timeout).');
+                                    }
+                                } catch (e) {
+                                    // Tab not accessible yet — keep retrying
+                                }
+                            }, 1000);
+
+                            setTimeout(() => {
+                                clearInterval(closeTimer);
+                                if (!scTab.closed && !scTabLoaded) {
+                                    try {
+                                        scTab.close();
+                                        console.log('[Auto Peek] 🔒 SC tab closed (25s hard timeout).');
+                                    } catch (e) {}
+                                }
+                            }, 25000);
+                        }
+                        return { focus() {}, close() {} };
+                    };
+
+                    button.click();
+                    console.log('[Auto Peek] ✅ Peek button clicked.');
+
+                    savePeekRecord();
+
+                    GM_setValue("peeked", JSON.stringify({
+                        ttl: Date.now() + ONE_HOUR,
+                        peekTimestamp: Date.now(),
+                        caseId: caseId || '',
+                    }));
+
+                    GM_setValue('peekAttempt', '{}');
+
+                    console.log('[Auto Peek] 💾 All peek data saved for case:', caseId);
+
+                    setTimeout(() => {
+                        unsafeWindow.open = originalOpen;
+                        console.log('[Auto Peek] 🔓 window.open restored.');
+                    }, 10000);
+
+                    setTimeout(() => window.focus(), 1500);
+
+                }, 1500);
+            }
+
+            const observer = new MutationObserver(tryClick);
+            observer.observe(document.body, { childList: true, subtree: true });
+
+            tryClick();
 
             setTimeout(() => {
-                const originalOpen = unsafeWindow.open;
-
-                unsafeWindow.open = function (url, target, features) {
-                    if (url) {
-                        console.log('[Auto Peek] 🔗 Intercepted SC URL:', url);
-
-                        // Open SC URL in background to establish session cookies
-                        console.log('[Auto Peek] 🌐 Opening SC in background to set cookies...');
-                        const scTab = GM_openInTab(url, { active: false, insert: true });
-
-                        // Track tab load state
-                        let scTabLoaded = false;
-
-                        // Attempt to detect SC page load via DOM readiness
-                        if (scTab && scTab.window) {
-                            try {
-                                // Listen for SC page's "load" event
-                                scTab.window.addEventListener('load', () => {
-                                    if (scTabLoaded) return; // Prevent duplicate triggers
-                                    scTabLoaded = true;
-                                    console.log('[Auto Peek] ✅ SC page loaded. Closing tab...');
-                                    scTab.close();
-                                    clearInterval(closeTimer); // Kill fallback timer
-                                });
-                            } catch (e) {
-                                console.warn('[Auto Peek] ⚠️ Could not attach load listener:', e);
-                            }
-                        }
-
-                        // Fallback: Close after 20 seconds if load event fails
-                        const closeTimer = setInterval(() => {
-                            try {
-                                if (scTab.closed) {
-                                    clearInterval(closeTimer);
-                                    console.log('[Auto Peek] 🔒 SC tab already closed.');
-                                    return;
-                                }
-
-                                // Close immediately if we detected load via event
-                                if (scTabLoaded) {
-                                    scTab.close();
-                                    clearInterval(closeTimer);
-                                    console.log('[Auto Peek] 🔒 SC tab closed (load confirmed).');
-                                    return;
-                                }
-
-                                // Fallback: Close after 20 seconds total
-                                const elapsed = Date.now() - tabCreatedAt;
-                                if (elapsed > 20000) {
-                                    scTab.close();
-                                    clearInterval(closeTimer);
-                                    console.log('[Auto Peek] 🔒 SC tab closed (20s timeout).');
-                                }
-                            } catch (e) {
-                                // Tab not accessible yet – keep retrying
-                            }
-                        }, 1000);
-
-                        // Safety: Ensure cleanup after 25 seconds
-                        setTimeout(() => {
-                            clearInterval(closeTimer);
-                            if (!scTab.closed && !scTabLoaded) {
-                                try {
-                                    scTab.close();
-                                    console.log('[Auto Peek] 🔒 SC tab closed (25s hard timeout).');
-                                } catch (e) {}
-                            }
-                        }, 25000);
-                    }
-                    return { focus() {}, close() {} };
-                };
-
-                button.click();
-                console.log('[Auto Peek] ✅ Peek button clicked.');
-
-                // Save peek record immediately
-                savePeekRecord();
-
-                // Also save legacy format for compatibility
-                GM_setValue("peeked", JSON.stringify({
-                    ttl: Date.now() + ONE_HOUR,
-                    peekTimestamp: Date.now(),
-                    caseId: caseId || '',
-                }));
-
-                GM_setValue('peekAttempt', '{}');
-
-                console.log('[Auto Peek] 💾 All peek data saved for case:', caseId);
-
-                // Restore window.open after 10 seconds
-                setTimeout(() => {
-                    unsafeWindow.open = originalOpen;
-                    console.log('[Auto Peek] 🔓 window.open restored.');
-                }, 10000);
-
-                // Keep focus on current page
-                setTimeout(() => window.focus(), 1500);
-
-            }, 1500);
-        }
-
-        const observer = new MutationObserver(tryClick);
-        observer.observe(document.body, { childList: true, subtree: true });
-
-        tryClick();
-
-        setTimeout(() => {
-            if (!clicked) {
-                observer.disconnect();
-                console.log('[Auto Peek] ⏱️ Button not found within 60s.');
-            }
-        }, 60000);
-    }
-}
-
-    // ========================== Handle SIM ==========================
-
-    function handleSim() {
-        const loadPage = setInterval(() => {
-            const title = $('#sim-title').text();
-            const body = $('.sim-overview .content').text();
-            const item = $('.issue-summary-cti .item').text();
-            const ticket = $('.ticket-id').text().trim();
-            if (title && body && item && ticket) {
-                clearInterval(loadPage);
-                if (title.includes("FIFA")) return handleFifaSim(body);
-                if (title.includes("Rover")) return handleRoverSim(body);
-                if (title.includes("HDSC")) return handleDefectAssuranceSim(body);
-                if (item.includes("RVR")) return handleRefusedVendorReturnsSim(body);
-                if (item.includes("Seller Coaching")) return handleSellerOutreachSim(body);
-                if (item.includes("Partnered Carrier Refunds")) return handlePartneredCarrierProgramSim(body);
-            }
-        }, 25);
-    }
-
-    async function handleFifaSim(body) {
-        try {
-            const caseId = body.match(/(?<=Paragon case id: )[\d]+/)[0];
-            const merchantId = body.match(/(?<=Merchant id: )[\d]+/)[0];
-            const marketplaceId = body.match(/(?<=Marketplace id: )[\d]+/)[0];
-            const marketplace = MARKETPLACE_ROUTES[marketplaceId];
-            const region = PARAGON_ROUTES[marketplaceId];
-            const token = await getToken();
-            const { tenantId, status } = await getCase(token, marketplace, caseId, region);
-            const customerId = await getCustomerId(token, caseId, tenantId, merchantId);
-            const endpoint = "/inventoryplanning/manageinventoryhealth/";
-            await peekNow(token, caseId, tenantId, merchantId, customerId, status, false, endpoint);
-        } catch (e) {
-            console.log('[Auto Peek] FIFA SIM auto-peek failed:', e);
+                if (!clicked) {
+                    observer.disconnect();
+                    console.log('[Auto Peek] ⏱️ Button not found within 60s.');
+                }
+            }, 60000);
         }
     }
 
-    async function handleRoverSim(body) {
-        try {
-            const fc = $('#sim-sidebar .sim-problemLocation--container .info-value').text().split('-')?.[1]?.trim();
-            const marketplace = (fc) ? MARKETPLACE_ROUTES[fc] : "amazon.com";
-            const merchantId = body.match(/(?<=Merchant ID: )[\d]+/)[0];
-            const token = await getToken();
-            const { caseId, tenantId, status } = await getCase(token, marketplace, merchantId);
-            const customerId = await getCustomerId(token, caseId, tenantId, merchantId);
-            await peekNow(token, caseId, tenantId, merchantId, customerId, status, false);
-        } catch (e) {
-            console.log('[Auto Peek] Rover SIM auto-peek failed:', e);
-        }
-    }
+    // — continued in Part 2 —
 
-    async function handleSellerOutreachSim(body) {
-        try {
-            const legacyMid = body.match(/MID:\s(\w+)/)[1];
-            const marketplace = "amazon.com";
-            const token = await getToken();
-            const { caseId, tenantId, status } = await getCase(token, marketplace, legacyMid);
-            const customerId = await getCustomerId(token, caseId, tenantId, legacyMid);
-            await peekNow(token, caseId, tenantId, legacyMid, customerId, status, false);
-        } catch (e) {
-            console.log('[Auto Peek] Seller Outreach SIM auto-peek failed:', e);
-        }
-    }
 
-    async function handleDefectAssuranceSim(body) {
-        try {
-            const merchantId = body.match(/MID:\s(\w+)/)[1];
-            const shipmentId = body.match(/FBA[\w]{6,9}/)[0];
-            const fc = body.match(/Warhouse ID:\s([\w]{3,4})/)[1];
-            const marketplace = getMarketplaceFromFc(fc);
-            const token = await getToken();
-            const legacyMid = await getLegacyMid(token, shipmentId);
-            const { caseId, tenantId, status } = await getCase(token, marketplace, legacyMid);
-            const customerId = await getCustomerId(token, caseId, tenantId, legacyMid);
-            const endpoint = (shipmentId) ? `/fba/inbound-shipment/summary/${shipmentId}/problems` : "";
-            await peekNow(token, caseId, tenantId, legacyMid, customerId, status, false, endpoint);
-        } catch (e) {
-            console.log('[Auto Peek] Defect Assurance SIM auto-peek failed:', e);
-        }
-    }
-
-    async function handleRefusedVendorReturnsSim(body) {
-        try {
-            body = body.toLowerCase();
-            const marketplace = "amazon.com";
-            const merchantId = body.match(/(?<=seller id:\s|merchant id:\s)[\d]+/g)[0];
-            const caseIdRegex = body.match(/(?<=seller case:\s)[^\n]+/g)?.[0].split("caseid=")?.[1];
-            const searchText = (caseIdRegex) ? caseIdRegex : merchantId;
-            const token = await getToken();
-            const { caseId, tenantId, status } = await getCase(token, marketplace, searchText);
-            const customerId = await getCustomerId(token, caseId, tenantId, merchantId);
-            const endpoint = "/fba/settings/index.html/";
-            await peekNow(token, caseId, tenantId, merchantId, customerId, status, false, endpoint);
-        } catch (e) {
-            console.log('[Auto Peek] RVR SIM auto-peek failed:', e);
-        }
-    }
-
-    async function handlePartneredCarrierProgramSim(body) {
-        try {
-            body = body.toLowerCase();
-            const marketplace = "amazon.com";
-            const caseIdRegex = body.match(/case([^\d]+)([\d]+)/)?.[2];
-            const merchantId = body.match(/seller([^\d]+)([\d]+)/)?.[2];
-            const shipmentId = body.match(/fba[\w]+/)?.[0]?.toUpperCase();
-            const searchText = (caseIdRegex) ? caseIdRegex : merchantId;
-            const token = await getToken();
-            const { caseId, tenantId, status } = await getCase(token, marketplace, searchText);
-            const customerId = await getCustomerId(token, caseId, tenantId, merchantId);
-            const endpoint = (shipmentId) ? `/fba/inbound-shipment/summary/${shipmentId}/` : "";
-            await peekNow(token, caseId, tenantId, merchantId, customerId, status, false, endpoint);
-        } catch (e) {
-            console.log('[Auto Peek] Partnered Carrier SIM auto-peek failed:', e);
-        }
-    }
+    // (continuing from Part 2 — inside AutoPeekModule IIFE)
 
     async function handleFreeReplacementRefundSim(body) {
         try {
-            const merchantId = body.match(/(?<=Merchant Id: )[\d]+/)[0];
-            const marketplace = body.match(/(?<=Marketplace: )[\w.]+/)[0];
+            const merchantId = body.match(/(?<=Merchant Id: )[\d]+/);
+            const marketplace = body.match(/(?<=Marketplace: )[\w.]+/);
             const region = PARAGON_ROUTES[marketplace];
             const token = await getToken();
             const { caseId, tenantId, status } = await getCase(token, marketplace, merchantId, region);
@@ -652,12 +526,12 @@ function handleParagonPeek() {
 
     async function getToken() {
         const res = await xhrPromise({ method: "GET", url: `https://paragon-${REGION}.amazon.com/hz/search?searchQuery=&sortField=creationDate&sortOrder=desc` });
-        const token = res.match(/csrfToken:\s"([^\n]+)"/);
+        const token = res.match(/csrfToken:\s"([^]+)"/);
         if (!token) {
             console.log('[Auto Peek] Paragon token not found. Please log into Paragon.');
             return false;
         }
-        return DOMPurify.sanitize(token[1]);
+        return DOMPurify.sanitize(token);
     }
 
     async function getCase(token, marketplace, searchText, region = `${REGION}`) {
@@ -748,7 +622,7 @@ function handleParagonPeek() {
                 headers: { "Content-Type": "application/x-www-form-urlencoded", "pgn-csrf-token": token },
             });
             const data = JSON.parse(peekCheck);
-            console.log('[Auto Peek] 🔍 Peekable check — hasRight:', data.hasRight, '| validCaseStatus:', data.validCaseStatus);
+            console.log('[Auto Peek] �� Peekable check — hasRight:', data.hasRight, '| validCaseStatus:', data.validCaseStatus);
             return (data.hasRight && data.validCaseStatus);
         } catch (e) {
             console.log('[Auto Peek] ⚠️ Peekable check error — proceeding anyway:', e);
@@ -758,7 +632,7 @@ function handleParagonPeek() {
 
     async function peekNow(token, caseId, tenantId, merchantId, customerId, caseStatus = null, newTab = false, endpoint = "") {
         try {
-            console.log('[Auto Peek] 🔎 peekNow params — caseId:', caseId, '| tenantId:', tenantId, '| merchantId:', merchantId, '| customerId:', customerId, '| status:', caseStatus);
+            console.log('[Auto Peek] �� peekNow params — caseId:', caseId, '| tenantId:', tenantId, '| merchantId:', merchantId, '| customerId:', customerId, '| status:', caseStatus);
 
             const peekable = await checkCasePeekable(token, caseId, merchantId, caseStatus);
             if (!peekable) {
@@ -772,10 +646,10 @@ function handleParagonPeek() {
                 data: `customerId=${customerId}&merchantId=${merchantId}&caseId=${caseId}&caseTenantId=${tenantId}`,
             });
 
-            console.log('[Auto Peek] 📩 invokepeeknow raw response:', res);
+            console.log('[Auto Peek] �� invokepeeknow raw response:', res);
 
             const data = JSON.parse(res).results.data;
-            console.log('[Auto Peek] 📦 invokepeeknow parsed — success:', data.success, '| duration:', data.duration, '| scURL:', data.scURL);
+            console.log('[Auto Peek] �� invokepeeknow parsed — success:', data.success, '| duration:', data.duration, '| scURL:', data.scURL);
 
             if (!data.success) {
                 console.log('[Auto Peek] ❌ invokepeeknow returned success=false');
@@ -821,6 +695,8 @@ function handleParagonPeek() {
     }
 
 })();
+// ============ END OF MODULE 1 ============
+
 
 // ############################################################
 // #                                                          #
@@ -1093,7 +969,9 @@ function handleParagonPeek() {
         }, 60000);
     }
 
+
 })();
+// ============ END OF MODULE 2 ============
 
 
 // ############################################################
@@ -1179,7 +1057,7 @@ function handleParagonPeek() {
     `);
 
     // ======================== CCP Status Detection ======================== //
-console.log('[AUX ALERT] Script loaded on:', location.href);
+    console.log('[AUX ALERT] Script loaded on:', location.href);
 
     function getCCPStatus() {
         try {
@@ -1244,6 +1122,10 @@ console.log('[AUX ALERT] Script loaded on:', location.href);
 
         modalOpen = true;
 
+        // 🔧 FIX #4: Sanitize statusText and message with DOMPurify before innerHTML.
+        const safeStatus = DOMPurify.sanitize(statusText);
+        const safeMessage = DOMPurify.sanitize(message, { ALLOWED_TAGS: ['strong', 'br'] });
+
         const overlay = document.createElement('div');
         overlay.id = 'aux-alert-overlay';
         overlay.innerHTML = `
@@ -1253,9 +1135,9 @@ console.log('[AUX ALERT] Script loaded on:', location.href);
                 </div>
                 <div id="aux-alert-body">
                     <div class="aux-status-line">
-                        Current AUX Status: <strong>${statusText}</strong>
+                        Current AUX Status: <strong>${safeStatus}</strong>
                     </div>
-                    <div class="aux-message">${message}</div>
+                    <div class="aux-message">${safeMessage}</div>
                 </div>
                 <div id="aux-alert-footer">
                     <button id="aux-alert-ok-btn">I Understand</button>
@@ -1305,6 +1187,16 @@ console.log('[AUX ALERT] Script loaded on:', location.href);
         if (inner) inner.classList.remove('aux-disabled-btn');
     }
 
+    // 🔧 FIX #3: Debounce helper to prevent excessive DOM queries
+    // from MutationObserver firing on every single DOM change.
+    function debounce(fn, delay) {
+        let timer = null;
+        return function (...args) {
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(() => fn.apply(this, args), delay);
+        };
+    }
+
     // ======================== PARAGON PAGE (AUX) ======================== //
 
     if (/paragon-.*\.amazon\.com\/hz\/(view-case|case)\?caseId=/.test(location.href)) {
@@ -1338,48 +1230,35 @@ console.log('[AUX ALERT] Script loaded on:', location.href);
             );
         }
 
+        // 🔧 FIX #5: Refactored 3 identical copy-pasted blocks into a single loop.
         function updateParagonButtons() {
             const { available } = checkIsAvailable();
 
-            document.querySelectorAll('kat-button[label="Review"]').forEach(btn => {
-                if (!available) {
-                    btn.classList.add('aux-disabled-btn');
-                    const inner = btn.querySelector('button');
-                    if (inner) inner.classList.add('aux-disabled-btn');
-                    addShield(btn, showParagonAlert);
-                } else {
-                    removeShield(btn);
-                }
-            });
-
-            document.querySelectorAll('kat-button[label="Transfer"]').forEach(btn => {
-                if (!available) {
-                    btn.classList.add('aux-disabled-btn');
-                    const inner = btn.querySelector('button');
-                    if (inner) inner.classList.add('aux-disabled-btn');
-                    addShield(btn, showParagonAlert);
-                } else {
-                    removeShield(btn);
-                }
-            });
-
-            document.querySelectorAll('kat-button[label="Send"]').forEach(btn => {
-                if (!available) {
-                    btn.classList.add('aux-disabled-btn');
-                    const inner = btn.querySelector('button');
-                                        if (inner) inner.classList.add('aux-disabled-btn');
-                    addShield(btn, showParagonAlert);
-                } else {
-                    removeShield(btn);
-                }
+            ['Review', 'Transfer', 'Send'].forEach(label => {
+                document.querySelectorAll(`kat-button[label="${label}"]`).forEach(btn => {
+                    if (!available) {
+                        btn.classList.add('aux-disabled-btn');
+                        const inner = btn.querySelector('button');
+                        if (inner) inner.classList.add('aux-disabled-btn');
+                        addShield(btn, showParagonAlert);
+                    } else {
+                        removeShield(btn);
+                    }
+                });
             });
         }
 
         function attachParagonListeners() {
-            setInterval(updateParagonButtons, 500);
+            // 🔧 FIX #3: Reduced polling from 500ms to 2000ms since the
+            // debounced MutationObserver now handles rapid DOM changes.
+            setInterval(updateParagonButtons, 2000);
             updateParagonButtons();
 
-            const auxObserver = new MutationObserver(updateParagonButtons);
+            // 🔧 FIX #3: Debounced MutationObserver callback (300ms).
+            // Previously every single DOM mutation triggered full button
+            // scanning + checkIsAvailable(). Now batches rapid mutations.
+            const debouncedUpdate = debounce(updateParagonButtons, 300);
+            const auxObserver = new MutationObserver(debouncedUpdate);
             auxObserver.observe(document.body, { childList: true, subtree: true });
         }
 
@@ -1390,8 +1269,10 @@ console.log('[AUX ALERT] Script loaded on:', location.href);
 
     // ======================== BEACON 2.0 PAGE ======================== //
 
-    if (/beacon2\.harmony\.a2z\.com\/beacon2\//.test(location.href)) {
-
+    // 🔧 FIX #6: Broadened Beacon URL regex to also match paths without
+    // the trailing /beacon2/ segment. The @match already uses
+    // beacon2.harmony.a2z.com/* but the old regex required /beacon2/ in path.
+    if (/beacon2\.harmony\.a2z\.com/.test(location.href)) {
 
         function showBeaconAlert(status) {
             showAuxModal(
@@ -1420,12 +1301,217 @@ console.log('[AUX ALERT] Script loaded on:', location.href);
             });
         }
 
-        setInterval(updateBeaconButtons, 500);
+        // 🔧 FIX #3: Reduced polling from 500ms to 2000ms, debounced observer.
+        setInterval(updateBeaconButtons, 2000);
 
-        const beaconObserver = new MutationObserver(updateBeaconButtons);
+        const debouncedBeaconUpdate = debounce(updateBeaconButtons, 300);
+        const beaconObserver = new MutationObserver(debouncedBeaconUpdate);
         beaconObserver.observe(document.body, { childList: true, subtree: true });
 
         setTimeout(updateBeaconButtons, 1000);
     }
+
+})();
+// ============ END OF MODULE 3 ============
+
+
+
+// ############################################################
+// #                                                          #
+// #            MODULE 4: OPEN ALL LINKS (ILAC)               #
+// #                                                          #
+// ############################################################
+
+(function OpenAllLinksModule() {
+    'use strict';
+
+    if (!/paragon-.*\.amazon\.com\/ilac\/view-ilac-report/.test(location.href)) return;
+
+    console.log('[OpenAllLinks] Module loaded on ILAC page');
+
+    const TARGET_LINK_TEXTS = ['Summary', 'Search Paragon', 'Check SANTOS', 'PO All Items'];
+    let openAllBtnAdded = false;
+
+    // ======================== Styles ======================== //
+
+    GM_addStyle(`
+        #oal-open-all-btn {
+            padding: 5px 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+
+        #oal-open-all-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        #oal-open-all-btn:active {
+            transform: translateY(0);
+        }
+
+        #oal-open-all-btn.oal-success {
+            background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+        }
+
+        #oal-open-all-btn.oal-error {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        }
+    `);
+
+    // ======================== Find Check Mapping Button ======================== //
+
+    function findCheckMappingButton() {
+        // Look for the Check Mapping button by its known ID first
+        const byId = document.getElementById('cm-check-mapping-btn');
+        if (byId) return byId;
+
+        // Fallback: search by text content
+        const allClickables = document.querySelectorAll('button, a, kat-button, [role="button"]');
+        for (const el of allClickables) {
+            const text = (el.textContent || el.getAttribute('label') || '').trim();
+            if (text === 'Check Mapping' || text === 'Check Mappings') {
+                return el;
+            }
+        }
+        return null;
+    }
+
+    // ======================== Find Target Links on ILAC Page ======================== //
+
+    function findTargetLinks() {
+        const links = [];
+        const allAnchors = document.querySelectorAll('a[href], button[onclick], kat-button');
+
+        for (const anchor of allAnchors) {
+            const text = (anchor.textContent || anchor.getAttribute('label') || '').trim();
+            for (const target of TARGET_LINK_TEXTS) {
+                if (text === target || text.toLowerCase() === target.toLowerCase()) {
+                    links.push({ text: target, element: anchor });
+                    break;
+                }
+            }
+        }
+        return links;
+    }
+
+    // ======================== Create & Insert Button ======================== //
+
+    function createOpenAllButton(referenceBtn) {
+        if (openAllBtnAdded) return;
+
+        const btn = document.createElement('button');
+        btn.id = 'oal-open-all-btn';
+        btn.textContent = 'Open All';
+        btn.title = 'Opens: Summary, Search Paragon, Check SANTOS, PO All Items';
+
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const targetLinks = findTargetLinks();
+            const foundTexts = targetLinks.map(l => l.text);
+            const missingTexts = TARGET_LINK_TEXTS.filter(t => !foundTexts.includes(t));
+
+            // No links found at all
+            if (targetLinks.length === 0) {
+                console.log('[OpenAllLinks] ❌ No target links found on page.');
+                btn.textContent = '❌ No Links Found';
+                btn.classList.add('oal-error');
+                setTimeout(() => {
+                    btn.textContent = 'Open All';
+                    btn.classList.remove('oal-error');
+                }, 2000);
+                return;
+            }
+
+            // Log any missing links
+            if (missingTexts.length > 0) {
+                console.log('[OpenAllLinks] ⚠️ Missing links:', missingTexts.join(', '));
+            }
+
+            // Open all found links
+            let opened = 0;
+            for (const link of targetLinks) {
+                const el = link.element;
+
+                if (el.tagName === 'A' && el.href) {
+                    // <a> tags — open href in new tab
+                    window.open(el.href, '_blank');
+                    opened++;
+                    console.log('[OpenAllLinks] ✅ Opened:', link.text, '→', el.href);
+                } else {
+                    // Buttons / kat-buttons — simulate click
+                    el.click();
+                    opened++;
+                    console.log('[OpenAllLinks] ✅ Clicked:', link.text);
+                }
+            }
+
+            // Visual feedback
+            btn.textContent = `✅ Opened ${opened}/${TARGET_LINK_TEXTS.length}`;
+            btn.classList.add('oal-success');
+            setTimeout(() => {
+                btn.textContent = 'Open All';
+                btn.classList.remove('oal-success');
+            }, 2500);
+
+            console.log(`[OpenAllLinks] 🎯 Opened ${opened} of ${TARGET_LINK_TEXTS.length} links.`);
+        });
+
+        // Insert right beside Check Mapping button
+        // Try to insert into the same container if it exists
+        const container = referenceBtn.closest('#cm-check-mapping-container');
+        if (container) {
+            container.appendChild(btn);
+        } else {
+            referenceBtn.parentNode.insertBefore(btn, referenceBtn.nextSibling);
+        }
+
+        openAllBtnAdded = true;
+        console.log('[OpenAllLinks] ✅ "Open All" button added beside Check Mapping.');
+    }
+
+    // ======================== Wait for Check Mapping & Insert ======================== //
+
+    function tryAddButton() {
+        if (openAllBtnAdded) return;
+
+        const checkMappingBtn = findCheckMappingButton();
+        if (!checkMappingBtn) return;
+
+        createOpenAllButton(checkMappingBtn);
+    }
+
+    // Poll every 1s until Check Mapping button appears
+    const openAllRetry = setInterval(() => {
+        tryAddButton();
+        if (openAllBtnAdded) clearInterval(openAllRetry);
+    }, 1000);
+
+    // Also watch DOM changes for dynamically loaded content
+    const openAllObserver = new MutationObserver(() => {
+        tryAddButton();
+        if (openAllBtnAdded) openAllObserver.disconnect();
+    });
+    openAllObserver.observe(document.body, { childList: true, subtree: true });
+
+    // Safety timeout — stop after 60s
+    setTimeout(() => {
+        clearInterval(openAllRetry);
+        openAllObserver.disconnect();
+        if (!openAllBtnAdded) {
+            console.log('[OpenAllLinks] ⏱️ Check Mapping button not found within 60s.');
+        }
+    }, 60000);
 
 })();
