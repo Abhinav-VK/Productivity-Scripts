@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name              ASAP
 // @namespace         http://tampermonkey.net/
-// @version           1.1.13
+// @version           1.1.12
 // @description       Combined: Auto Peek into seller accounts, Auto Populate MID & FRD, and AUX status enforcement
 // @author            Abhinav
 // @updateURL         https://amazon.sharepoint.com/sites/ProductivityScripts/Shared%20Documents/ASAP.user.js
